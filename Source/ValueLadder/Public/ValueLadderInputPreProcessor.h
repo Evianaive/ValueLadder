@@ -27,4 +27,6 @@ public:
 	virtual bool HandleMouseWheelOrGestureEvent(FSlateApplication& SlateApp, const FPointerEvent& InWheelEvent,	const FPointerEvent* InGestureEvent) override;
 	
 	EMouseEnterState MouseEnterState = EMouseEnterState::None;
+	
+	TWeakPtr<SWindow> ValueLadderWindow;
 };
