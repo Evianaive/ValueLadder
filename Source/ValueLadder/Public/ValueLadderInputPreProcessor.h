@@ -29,4 +29,6 @@ public:
 	EMouseEnterState MouseEnterState = EMouseEnterState::None;
 	
 	TWeakPtr<SWindow> ValueLadderWindow;
+	int32 LockedIndex{-1};
+	TVariant<int,float> LockedValue;
 };

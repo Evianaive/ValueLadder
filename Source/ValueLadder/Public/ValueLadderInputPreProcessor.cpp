@@ -1,7 +1,82 @@
 ﻿
 #include "ValueLadderInputPreProcessor.h"
 
-#include "Widgets/Input/SSpinBox.h"
+#include "SValueLadder.h"
+#include "ValueLadderSettings.h"
+
+
+#define LOCTEXT_NAMESPACE "ValueBuilder"
+
+
+struct FValueLadderHolderBase
+{
+	TSharedRef<SValueLadder> MakeValueLadder()
+	{
+		return SNew(SValueLadder)
+			.LadderValues(MoveTemp(LadderValueStrings));
+	}
+	// TSharedRef<SValueLadder> MakeValueLadder(const TFunction<int32()>& GetIndexFunction)
+	// {
+	// 	return SNew(SValueLadder)
+	// 		.LadderValues(MoveTemp(LadderValueStrings))
+	// 		.Index(GetIndexFunction);
+	// }
+	TArray<FText> LadderValueStrings;
+};
+
+template<typename T>
+struct FValueLadderHolder : FValueLadderHolderBase
+{
+	FValueLadderHolder(){};
+	FValueLadderHolder(const TArray<T>& InValues, int32 InStartIndex)
+	:Values(&InValues)
+	,StartIndex(InStartIndex)
+	{
+		if(!Values->Num())
+			return;
+		LadderValueStrings.Reserve(Values->Num());
+		for (T LadderValue : *Values)
+		{
+			FText& Text = LadderValueStrings.AddDefaulted_GetRef();
+			if constexpr (std::is_same_v<T,int32>)
+				Text = FText::FromString(FString::FromInt(LadderValue));			
+			else
+				Text = FText::FromString(FString::SanitizeFloat(LadderValue));
+		}
+	}
+	const TArray<T>* Values {nullptr};
+	int32 StartIndex{0};
+};
+// template struct FValueLadderHolder<float>;
+// template struct FValueLadderHolder<int32>;
+
+using TValueLadderBuilder = TVariant<FValueLadderHolder<int32>,FValueLadderHolder<float>>;
+
+template<typename TLadderValuesProvider>
+void static CreateValueLadder(TOptional<TValueLadderBuilder>& Builder,const FName ValueType, const TLadderValuesProvider* LadderValuesProvider)
+{
+	TSet<FName> IntTypes{"int","int64","int32","int16","int8","uint64","uint32","uint16","uint8"};
+	TSet<FName> FloatTypes{"float","double"};
+
+	if(IntTypes.Contains(ValueType))
+	{
+		// const TArray<int32>& Values = LadderValuesProvider.template GetLadderValues<int32>();
+		Builder.Emplace(
+			TValueLadderBuilder{TInPlaceType<FValueLadderHolder<int32>>(),
+			LadderValuesProvider->template GetLadderValues<int32>(),
+			LadderValuesProvider->template GetDefaultLadderValuesIndex<int32>()}
+			);
+	}
+	else if(FloatTypes.Contains(ValueType))
+	{
+		// const TArray<float>& Values = LadderValuesProvider.template GetLadderValues<float>();
+		Builder.Emplace(
+			TValueLadderBuilder{TInPlaceType<FValueLadderHolder<float>>(),
+			LadderValuesProvider->template GetLadderValues<float>(),
+			LadderValuesProvider->template GetDefaultLadderValuesIndex<float>()}
+			);		
+	}
+}
 
 FValueLadderInputPreProcessor::FValueLadderInputPreProcessor()
 {
@@ -20,7 +95,7 @@ bool FValueLadderInputPreProcessor::HandleMouseButtonDownEvent(FSlateApplication
 	if(MouseEvent.GetEffectingButton() == EKeys::MiddleMouseButton)
 	{
 		MouseEnterState = EMouseEnterState::Middle;
-		const auto& LocalMousePosition = MouseEvent.GetScreenSpacePosition();
+		const FVector2D& LocalMousePosition = MouseEvent.GetScreenSpacePosition();
 		FWidgetPath widgetsUnderCursor = SlateApp.LocateWindowUnderMouse(LocalMousePosition, SlateApp.GetInteractiveTopLevelWindows());
 		FScopedSwitchWorldHack SwitchWorld(widgetsUnderCursor);
 		FString DebugMessage = TEXT("");
@@ -45,19 +120,29 @@ bool FValueLadderInputPreProcessor::HandleMouseButtonDownEvent(FSlateApplication
 					WidgetName.RemoveAt(0,23);
 					WidgetName.RemoveAt(WidgetName.Len()-1);
 					
-					//Todo Show UI and focus
+					TOptional<TValueLadderBuilder> Builder;
+					CreateValueLadder(Builder,FName(WidgetName),GetDefault<UValueLadderSettings>());
+					if(!Builder.IsSet())
+					{
+						UE_LOG(LogTemp,Log,TEXT("SPropertyEditorNumeric<%s> is not supported"),*WidgetName);
+						return true;
+					}
 					TSharedPtr<SWindow> Window = ValueLadderWindow.Pin();
+					auto ValueLadderWidget = ::Visit([](auto& Holder){return Holder.MakeValueLadder();},Builder.GetValue());
+										
+					// int32 Size = reinterpret_cast<FValueLadderHolderBase*>(&Builder.GetValue())->LadderValueStrings.Num();
+					int32 StartIndex = ::Visit([](auto& Holder){return Holder.StartIndex;},Builder.GetValue());
+					ValueLadderWidget->SetIndex(StartIndex);
 					Window = SNew(SWindow)
+						.ScreenPosition(LocalMousePosition - FVector2D(50,10+StartIndex*20))
+						.CreateTitleBar(false)
+						.AutoCenter(EAutoCenter::None)
+						.SizingRule(ESizingRule::Autosized)
+						// .ClientSize(FVector2D(100,Size*50))
 						[
-							SNew(SBorder)
-							[
-								SNew(SButton)
-								[
-									SNew(STextBlock)
-									.Text(FText::FromString(TEXT("TestButton")))
-								]
-							]
+							ValueLadderWidget
 						];
+					//Todo Show UI and focus
 					SlateApp.AddWindow(Window.ToSharedRef());
 					ValueLadderWindow = Window;
 					return true;
@@ -94,7 +179,7 @@ bool FValueLadderInputPreProcessor::HandleMouseButtonUpEvent(FSlateApplication& 
 	
 	if(MouseEnterState == MouseLeaveState)
 	{
-		if(MouseLeaveState==EMouseEnterState::Right)
+		if(MouseLeaveState==EMouseEnterState::Middle)
 		{
 			if(ValueLadderWindow.IsValid())
 				ValueLadderWindow.Pin()->RequestDestroyWindow();
@@ -134,3 +219,5 @@ bool FValueLadderInputPreProcessor::HandleMouseWheelOrGestureEvent(FSlateApplica
 {
 	return IInputProcessor::HandleMouseWheelOrGestureEvent(SlateApp, InWheelEvent, InGestureEvent);
 }
+
+#undef LOCTEXT_NAMESPACE
