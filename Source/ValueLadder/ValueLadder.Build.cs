@@ -39,7 +39,10 @@ public class ValueLadder : ModuleRules
 				"Slate",
 				"SlateCore",
 				"InputCore",
-				"DeveloperSettings"
+				"DeveloperSettings",
+				"ApplicationCore",
+				"PropertyEditor",
+				"UnrealEd"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);
