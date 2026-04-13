@@ -2,6 +2,7 @@
 
 #include "Styling/AppStyle.h"
 #include "Widgets/SBoxPanel.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -14,54 +15,77 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 {
 	ChildSlot
 	[
-		SNew(SBorder)
-		.BorderImage(FAppStyle::Get().GetBrush(TEXT("Menu.Background")))
-		.Padding(FMargin(8.0f))
+		SNew(SBox)
+		.WidthOverride(ValueLadder::UI::SelectionColumnWidthPx)
 		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			.Padding(0.0f, 0.0f, 8.0f, 0.0f)
+			SNew(SBorder)
+			.BorderImage(FAppStyle::Get().GetBrush(TEXT("Menu.Background")))
+			.Padding(FMargin(8.0f))
 			[
-				SAssignNew(LadderListBox, SVerticalBox)
-			]
-			+ SHorizontalBox::Slot()
-			.AutoWidth()
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot()
-				.AutoHeight()
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0.0f, 0.0f, 8.0f, 0.0f)
 				[
-					SAssignNew(MultiplierTextBlock, STextBlock)
-					.Text(FText::FromString(TEXT("x1.0")))
+					SAssignNew(LadderListBox, SVerticalBox)
 				]
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
 				[
-					SAssignNew(DeltaTextBlock, STextBlock)
-					.Text(FText::FromString(TEXT("Delta 0")))
-				]
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-				[
-					SAssignNew(PreviewTextBlock, STextBlock)
-					.Text(FText::FromString(TEXT("Value: -")))
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					[
+						SAssignNew(LockStateTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("Select delta")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(MultiplierTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("x1.0")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(DeltaTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("Delta 0")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(PreviewTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("Value: -")))
+					]
 				]
 			]
 		]
 	];
 }
 
-void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue)
+void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue, const bool bSelectionLocked)
 {
 	if (LadderRowBorders.Num() != InLadderValues.Num())
 	{
 		RebuildLadderRows(InLadderValues);
 	}
 
-	UpdateLadderHighlight(InActiveIndex);
+	UpdateLadderHighlight(InActiveIndex, bSelectionLocked);
+
+	if (LockStateTextBlock.IsValid())
+	{
+		FText LockText = FText::FromString(TEXT("Select delta"));
+		if (bSelectionLocked && InLadderValues.IsValidIndex(InActiveIndex))
+		{
+			LockText = FText::FromString(FString::Printf(TEXT("Locked: %s"), *InLadderValues[InActiveIndex].ToString()));
+		}
+
+		LockStateTextBlock->SetText(LockText);
+		LockStateTextBlock->SetColorAndOpacity(bSelectionLocked ? FSlateColor(FLinearColor(1.0f, 0.8f, 0.2f)) : FSlateColor::UseForeground());
+	}
 
 	if (MultiplierTextBlock.IsValid())
 	{
@@ -116,7 +140,7 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 	}
 }
 
-void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex)
+void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex, const bool bSelectionLocked)
 {
 	for (int32 Index = 0; Index < LadderRowBorders.Num(); ++Index)
 	{
@@ -126,7 +150,10 @@ void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex)
 		}
 
 		const bool bIsActive = Index == InActiveIndex;
-		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? FLinearColor(0.9f, 0.45f, 0.0f, 0.4f) : FLinearColor::Transparent);
+		const FLinearColor ActiveColor = bSelectionLocked
+			? FLinearColor(1.0f, 0.62f, 0.0f, 0.6f)
+			: FLinearColor(0.9f, 0.45f, 0.0f, 0.4f);
+		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? ActiveColor : FLinearColor::Transparent);
 		if (LadderRowTexts.IsValidIndex(Index) && LadderRowTexts[Index].IsValid())
 		{
 			LadderRowTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor::White) : FSlateColor::UseForeground());

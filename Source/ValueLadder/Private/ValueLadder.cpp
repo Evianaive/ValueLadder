@@ -8,6 +8,7 @@
 #include "Customization/NumericPropertyCustomization.h"
 #include "Customization/TransformPropertyCustomization.h"
 #include "Customization/VectorPropertyCustomization.h"
+#include "Input/ComponentTransformDetailsBridge.h"
 
 #include "Framework/Application/SlateApplication.h"
 #include "Modules/ModuleManager.h"
@@ -46,6 +47,11 @@ void FValueLadderModule::StartupModule()
 	}
 
 	RegisterPropertyCustomizations();
+	if (FModuleManager::Get().IsModuleLoaded(TEXT("PropertyEditor")))
+	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+		FComponentTransformDetailsBridge::Get().Register(PropertyModule);
+	}
 }
 
 void FValueLadderModule::ShutdownModule()
@@ -60,6 +66,11 @@ void FValueLadderModule::ShutdownModule()
 	}
 
 	UnregisterPropertyCustomizations();
+	if (FModuleManager::Get().IsModuleLoaded(TEXT("PropertyEditor")))
+	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
+		FComponentTransformDetailsBridge::Get().Unregister(PropertyModule);
+	}
 }
 
 void FValueLadderModule::RegisterPropertyCustomizations()

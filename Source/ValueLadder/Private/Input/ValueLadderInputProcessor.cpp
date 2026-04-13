@@ -1,5 +1,6 @@
 #include "Input/ValueLadderInputProcessor.h"
 
+#include "Input/ComponentTransformDetailsBridge.h"
 #include "Input/ValueLadderTargetRegistry.h"
 #include "UI/SValueLadderOverlay.h"
 #include "ValueLadderLog.h"
@@ -70,7 +71,9 @@ bool FValueLadderInputProcessor::HandleMouseButtonDownEvent(FSlateApplication& S
 	UE_LOG(LogValueLadder, Display, TEXT("[Input] MouseDown accepted for trigger=%s at (%.1f, %.1f). WidgetPathDepth=%d ShowOverlay=%s"), *Settings->TriggerMouseButton.ToString(), CursorPosition.X, CursorPosition.Y, WidgetsUnderCursor.Widgets.Num(), Settings->bShowOverlay ? TEXT("true") : TEXT("false"));
 
 	FValueLadderPropertyTarget Target;
-	if (!FValueLadderTargetRegistry::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target))
+	const bool bResolvedFromRegistry = FValueLadderTargetRegistry::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target);
+	const bool bResolvedFromTransformBridge = !bResolvedFromRegistry && FComponentTransformDetailsBridge::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target);
+	if (!bResolvedFromRegistry && !bResolvedFromTransformBridge)
 	{
 		UE_LOG(
 			LogValueLadder,
@@ -80,6 +83,11 @@ bool FValueLadderInputProcessor::HandleMouseButtonDownEvent(FSlateApplication& S
 			CursorPosition.Y,
 			WidgetsUnderCursor.Widgets.Num());
 		return false;
+	}
+
+	if (bResolvedFromTransformBridge)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Input] MouseDown resolved target through transform bridge fallback."));
 	}
 
 	if (Target.bIsVectorComponent)
@@ -158,13 +166,32 @@ bool FValueLadderInputProcessor::HandleMouseMoveEvent(FSlateApplication& SlateAp
 		return true;
 	}
 
-	ActiveLadderIndex = ResolveActiveLadderIndex(*Settings, MouseEvent.GetScreenSpacePosition());
-	const double LadderStep = Settings->GetLadderStep(ActiveTarget.NumericType, ActiveLadderIndex);
+	const double RawPixelOffset = MouseEvent.GetScreenSpacePosition().X - DragStartPosition.X;
+	const bool bInsideSelectionColumn = ValueLadder::Math::IsInsideSelectionColumn(RawPixelOffset, SelectionColumnWidthPx);
+	const bool bPreviousSelectionLocked = bSelectionLocked;
+	bSelectionLocked = !bInsideSelectionColumn;
 
-	const double PixelOffset = MouseEvent.GetScreenSpacePosition().X - DragStartPosition.X;
-	UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Input] MouseMove gesture=%llu pixelOffset=%.6g ladderIndex=%d ladderStep=%.6g shift=%s ctrl=%s"), ActiveGestureId, PixelOffset, ActiveLadderIndex, LadderStep, MouseEvent.IsShiftDown() ? TEXT("true") : TEXT("false"), MouseEvent.IsControlDown() ? TEXT("true") : TEXT("false"));
+	if (bInsideSelectionColumn)
+	{
+		const int32 ResolvedLadderIndex = ResolveActiveLadderIndex(*Settings, MouseEvent.GetScreenSpacePosition());
+		if (ResolvedLadderIndex != ActiveLadderIndex)
+		{
+			UE_LOG(LogValueLadder, Display, TEXT("[Input] Gesture=%llu switched ladder row inside selection column: %d -> %d"), ActiveGestureId, ActiveLadderIndex, ResolvedLadderIndex);
+		}
+
+		ActiveLadderIndex = ResolvedLadderIndex;
+	}
+
+	if (bPreviousSelectionLocked != bSelectionLocked)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Input] Gesture=%llu selection column state changed: locked=%s rawPixelOffset=%.6g gateWidth=%.6g"), ActiveGestureId, bSelectionLocked ? TEXT("true") : TEXT("false"), RawPixelOffset, SelectionColumnWidthPx);
+	}
+
+	const double LadderStep = Settings->GetLadderStep(ActiveTarget.NumericType, ActiveLadderIndex);
+	const double GatedPixelOffset = ValueLadder::Math::ApplySelectionColumnGate(RawPixelOffset, SelectionColumnWidthPx);
+	UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Input] MouseMove gesture=%llu rawPixelOffset=%.6g gatedPixelOffset=%.6g locked=%s ladderIndex=%d ladderStep=%.6g shift=%s ctrl=%s"), ActiveGestureId, RawPixelOffset, GatedPixelOffset, bSelectionLocked ? TEXT("true") : TEXT("false"), ActiveLadderIndex, LadderStep, MouseEvent.IsShiftDown() ? TEXT("true") : TEXT("false"), MouseEvent.IsControlDown() ? TEXT("true") : TEXT("false"));
 	FString SessionError;
-	if (!Session.UpdateFromPixelOffset(PixelOffset, LadderStep, MouseEvent.IsShiftDown(), MouseEvent.IsControlDown(), *Settings, SessionError))
+	if (!Session.UpdateFromPixelOffset(GatedPixelOffset, LadderStep, MouseEvent.IsShiftDown(), MouseEvent.IsControlDown(), *Settings, SessionError))
 	{
 		UE_LOG(LogValueLadder, Warning, TEXT("[Input] MouseMove update failed for gesture=%llu: %s"), ActiveGestureId, *SessionError);
 		EndGesture(false);
@@ -209,8 +236,10 @@ bool FValueLadderInputProcessor::InitializeGesture(const UValueLadderSettings& S
 	Settings.BuildLadderDisplayValues(Target.NumericType, ActiveLadderValues);
 	StartLadderIndex = Settings.GetDefaultLadderIndex(Target.NumericType);
 	ActiveLadderIndex = StartLadderIndex;
+	bSelectionLocked = false;
+	SelectionColumnWidthPx = ValueLadder::UI::SelectionColumnWidthPx;
 	OverlayAnchorPosition = DragStartPosition - FVector2D(50.0f, 10.0f + static_cast<float>(StartLadderIndex) * LadderRowHeightPx);
-	UE_LOG(LogValueLadder, Display, TEXT("[Input] Gesture=%llu initialized. Type=%s StartIndex=%d LadderCount=%d Anchor=(%.1f, %.1f)"), ActiveGestureId, ToNumericTypeString(Target.NumericType), StartLadderIndex, ActiveLadderValues.Num(), OverlayAnchorPosition.X, OverlayAnchorPosition.Y);
+	UE_LOG(LogValueLadder, Display, TEXT("[Input] Gesture=%llu initialized. Type=%s StartIndex=%d LadderCount=%d Anchor=(%.1f, %.1f) GateWidth=%.1f"), ActiveGestureId, ToNumericTypeString(Target.NumericType), StartLadderIndex, ActiveLadderValues.Num(), OverlayAnchorPosition.X, OverlayAnchorPosition.Y, SelectionColumnWidthPx);
 
 	if (Settings.bShowOverlay)
 	{
@@ -254,8 +283,8 @@ void FValueLadderInputProcessor::UpdateOverlay()
 {
 	if (OverlayWidget.IsValid())
 	{
-		OverlayWidget->UpdateDisplay(ActiveLadderValues, ActiveLadderIndex, Session.GetCurrentMultiplier(), Session.GetCurrentDelta(), Session.GetPreviewValueText());
-		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Overlay] Gesture=%llu updated overlay. ActiveIndex=%d Delta=%.6g Multiplier=%.6g"), ActiveGestureId, ActiveLadderIndex, Session.GetCurrentDelta(), Session.GetCurrentMultiplier());
+		OverlayWidget->UpdateDisplay(ActiveLadderValues, ActiveLadderIndex, Session.GetCurrentMultiplier(), Session.GetCurrentDelta(), Session.GetPreviewValueText(), bSelectionLocked);
+		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Overlay] Gesture=%llu updated overlay. ActiveIndex=%d Locked=%s Delta=%.6g Multiplier=%.6g"), ActiveGestureId, ActiveLadderIndex, bSelectionLocked ? TEXT("true") : TEXT("false"), Session.GetCurrentDelta(), Session.GetCurrentMultiplier());
 	}
 	else
 	{
@@ -296,6 +325,8 @@ void FValueLadderInputProcessor::EndGesture(const bool bCommit)
 	ActiveLadderValues.Reset();
 	StartLadderIndex = 0;
 	ActiveLadderIndex = 0;
+	bSelectionLocked = false;
+	SelectionColumnWidthPx = 0.0;
 	DestroyOverlay();
 	ActiveGestureId = 0;
 }

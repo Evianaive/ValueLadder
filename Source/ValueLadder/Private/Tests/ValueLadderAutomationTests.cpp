@@ -23,6 +23,22 @@ bool FValueLadderDeltaMathTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FValueLadderSelectionColumnGateTest,
+	"ValueLadder.Math.SelectionColumnGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FValueLadderSelectionColumnGateTest::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("Offset inside selection column should report unlocked"), ValueLadder::Math::IsInsideSelectionColumn(40.0, 180.0));
+	TestFalse(TEXT("Offset outside selection column should report locked"), ValueLadder::Math::IsInsideSelectionColumn(100.0, 180.0));
+	TestEqual(TEXT("Movement inside selection column should not accumulate"), ValueLadder::Math::ApplySelectionColumnGate(40.0, 180.0), 0.0);
+	TestEqual(TEXT("Movement should begin accumulating after leaving the positive edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(120.0, 180.0), 30.0);
+	TestEqual(TEXT("Movement should begin accumulating after leaving the negative edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(-120.0, 180.0), -30.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FValueLadderClampTest,
 	"ValueLadder.Math.ClampRange",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

@@ -35,6 +35,8 @@ private:
 	TArray<FText> ActiveLadderValues;
 	int32 StartLadderIndex = 0;
 	int32 ActiveLadderIndex = 0;
+	bool bSelectionLocked = false;
+	double SelectionColumnWidthPx = 0.0;
 	uint64 ActiveGestureId = 0;
 	uint64 NextGestureId = 1;
 
