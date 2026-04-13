@@ -23,5 +23,7 @@ public:
 		IPropertyTypeCustomizationUtils& CustomizationUtils) override;
 
 private:
+	static bool ResolveNumericType(const TSharedRef<IPropertyHandle>& PropertyHandle, EValueLadderNumericType& OutType);
+
 	TArray<FValueLadderTargetHandle> RegisteredHandles;
 };

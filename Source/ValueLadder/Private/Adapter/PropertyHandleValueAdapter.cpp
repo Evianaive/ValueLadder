@@ -1,13 +1,154 @@
 #include "Adapter/PropertyHandleValueAdapter.h"
 
+#include "ValueLadderLog.h"
+
+#include "Math/Rotator.h"
+#include "Math/Transform.h"
 #include "UObject/UnrealType.h"
 
 namespace
 {
-const FName NAME_ClampMin(TEXT("ClampMin"));
-const FName NAME_ClampMax(TEXT("ClampMax"));
-const FName NAME_UIMin(TEXT("UIMin"));
-const FName NAME_UIMax(TEXT("UIMax"));
+const FName VLT_NAME_ClampMin(TEXT("ClampMin"));
+const FName VLT_NAME_ClampMax(TEXT("ClampMax"));
+const FName VLT_NAME_UIMin(TEXT("UIMin"));
+const FName VLT_NAME_UIMax(TEXT("UIMax"));
+const FName VLT_NAME_X(TEXT("X"));
+const FName VLT_NAME_Y(TEXT("Y"));
+const FName VLT_NAME_Z(TEXT("Z"));
+const FName VLT_NAME_Roll(TEXT("Roll"));
+const FName VLT_NAME_Pitch(TEXT("Pitch"));
+const FName VLT_NAME_Yaw(TEXT("Yaw"));
+
+	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
+	{
+		switch (NumericType)
+		{
+		case EValueLadderNumericType::Float:
+			return TEXT("Float");
+		case EValueLadderNumericType::Double:
+			return TEXT("Double");
+		case EValueLadderNumericType::Int32:
+			return TEXT("Int32");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+
+	const TCHAR* ToTargetKindString(const FValueLadderPropertyTarget::ETargetKind Kind)
+	{
+		switch (Kind)
+		{
+		case FValueLadderPropertyTarget::ETargetKind::PropertyHandleScalar:
+			return TEXT("PropertyHandleScalar");
+		case FValueLadderPropertyTarget::ETargetKind::TransformProxy:
+			return TEXT("TransformProxy");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+
+	const TCHAR* ToTransformFieldString(const FValueLadderPropertyTarget::ETransformField Field)
+	{
+		switch (Field)
+		{
+		case FValueLadderPropertyTarget::ETransformField::Location:
+			return TEXT("Location");
+		case FValueLadderPropertyTarget::ETransformField::Rotation:
+			return TEXT("Rotation");
+		case FValueLadderPropertyTarget::ETransformField::Scale:
+			return TEXT("Scale");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+
+	template <typename NumericT>
+	double ReadTransformComponent(const UE::Math::TTransform<NumericT>& Transform, const FValueLadderPropertyTarget& Target)
+	{
+		if (Target.TransformField == FValueLadderPropertyTarget::ETransformField::Rotation)
+		{
+			const UE::Math::TRotator<NumericT> Rotation = Transform.GetRotation().Rotator();
+			if (Target.ComponentName == VLT_NAME_Roll)
+			{
+				return static_cast<double>(Rotation.Roll);
+			}
+
+			if (Target.ComponentName == VLT_NAME_Pitch)
+			{
+				return static_cast<double>(Rotation.Pitch);
+			}
+
+			return static_cast<double>(Rotation.Yaw);
+		}
+
+		const UE::Math::TVector<NumericT> Value = Target.TransformField == FValueLadderPropertyTarget::ETransformField::Scale
+			? Transform.GetScale3D()
+			: Transform.GetTranslation();
+
+		if (Target.ComponentName == VLT_NAME_Y)
+		{
+			return static_cast<double>(Value.Y);
+		}
+
+		if (Target.ComponentName == VLT_NAME_Z)
+		{
+			return static_cast<double>(Value.Z);
+		}
+
+		return static_cast<double>(Value.X);
+	}
+
+	template <typename NumericT>
+	void WriteTransformComponent(UE::Math::TTransform<NumericT>& Transform, const FValueLadderPropertyTarget& Target, const double NewValue)
+	{
+		const NumericT ConvertedValue = static_cast<NumericT>(NewValue);
+
+		if (Target.TransformField == FValueLadderPropertyTarget::ETransformField::Rotation)
+		{
+			UE::Math::TRotator<NumericT> Rotation = Transform.GetRotation().Rotator();
+			if (Target.ComponentName == VLT_NAME_Roll)
+			{
+				Rotation.Roll = ConvertedValue;
+			}
+			else if (Target.ComponentName == VLT_NAME_Pitch)
+			{
+				Rotation.Pitch = ConvertedValue;
+			}
+			else
+			{
+				Rotation.Yaw = ConvertedValue;
+			}
+
+			Transform.SetRotation(Rotation.Quaternion());
+			return;
+		}
+
+		UE::Math::TVector<NumericT> Value = Target.TransformField == FValueLadderPropertyTarget::ETransformField::Scale
+			? Transform.GetScale3D()
+			: Transform.GetTranslation();
+
+		if (Target.ComponentName == VLT_NAME_Y)
+		{
+			Value.Y = ConvertedValue;
+		}
+		else if (Target.ComponentName == VLT_NAME_Z)
+		{
+			Value.Z = ConvertedValue;
+		}
+		else
+		{
+			Value.X = ConvertedValue;
+		}
+
+		if (Target.TransformField == FValueLadderPropertyTarget::ETransformField::Scale)
+		{
+			Transform.SetScale3D(Value);
+		}
+		else
+		{
+			Transform.SetTranslation(Value);
+		}
+	}
 }
 
 bool FPropertyHandleValueAdapter::CaptureBaseline(
@@ -18,12 +159,14 @@ bool FPropertyHandleValueAdapter::CaptureBaseline(
 	if (!Target.IsValid())
 	{
 		OutError = TEXT("Property target is invalid.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] CaptureBaseline failed: %s"), *OutError);
 		return false;
 	}
 
 	if (!Target.PropertyHandle->IsEditable() || Target.PropertyHandle->IsEditConst())
 	{
 		OutError = TEXT("Property is not editable.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] CaptureBaseline failed for kind=%s type=%s: %s"), ToTargetKindString(Target.Kind), ToNumericTypeString(Target.NumericType), *OutError);
 		return false;
 	}
 
@@ -32,6 +175,7 @@ bool FPropertyHandleValueAdapter::CaptureBaseline(
 	if (RawData.IsEmpty())
 	{
 		OutError = TEXT("No raw property data found for current selection.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] CaptureBaseline failed for kind=%s type=%s: %s"), ToTargetKindString(Target.Kind), ToNumericTypeString(Target.NumericType), *OutError);
 		return false;
 	}
 
@@ -44,16 +188,41 @@ bool FPropertyHandleValueAdapter::CaptureBaseline(
 			continue;
 		}
 
-		OutBaseline.BaselineValues.Add(ReadScalar(RawPtr, Target.NumericType));
+		if (Target.Kind == FValueLadderPropertyTarget::ETargetKind::TransformProxy)
+		{
+			switch (Target.NumericType)
+			{
+			case EValueLadderNumericType::Float:
+				OutBaseline.BaselineValues.Add(ReadTransformComponent(*static_cast<FTransform3f*>(RawPtr), Target));
+				break;
+			case EValueLadderNumericType::Double:
+				OutBaseline.BaselineValues.Add(ReadTransformComponent(*static_cast<FTransform3d*>(RawPtr), Target));
+				break;
+			default:
+				OutError = TEXT("Transform proxy targets only support float and double components.");
+				UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] CaptureBaseline failed for kind=%s field=%s component=%s: %s"), ToTargetKindString(Target.Kind), ToTransformFieldString(Target.TransformField), *Target.ComponentName.ToString(), *OutError);
+				return false;
+			}
+		}
+		else
+		{
+			OutBaseline.BaselineValues.Add(ReadScalar(RawPtr, Target.NumericType));
+		}
 	}
 
 	if (OutBaseline.BaselineValues.IsEmpty())
 	{
 		OutError = TEXT("Failed to capture baseline values.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] CaptureBaseline failed for kind=%s type=%s: %s"), ToTargetKindString(Target.Kind), ToNumericTypeString(Target.NumericType), *OutError);
 		return false;
 	}
 
-	PopulateConstraints(Target.PropertyHandle, OutBaseline.Constraints);
+	if (Target.Kind == FValueLadderPropertyTarget::ETargetKind::PropertyHandleScalar)
+	{
+		PopulateConstraints(Target.PropertyHandle, OutBaseline.Constraints);
+	}
+
+	UE_LOG(LogValueLadder, Display, TEXT("[Adapter] CaptureBaseline success kind=%s type=%s values=%d"), ToTargetKindString(Target.Kind), ToNumericTypeString(Target.NumericType), OutBaseline.BaselineValues.Num());
 	return true;
 }
 
@@ -65,6 +234,7 @@ bool FPropertyHandleValueAdapter::ApplyDelta(
 {
 	if (!Target.IsValid() || Baseline.BaselineValues.IsEmpty())
 	{
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] ApplyDelta failed: invalid target or empty baseline."));
 		return false;
 	}
 
@@ -72,8 +242,11 @@ bool FPropertyHandleValueAdapter::ApplyDelta(
 	Target.PropertyHandle->AccessRawData(RawData);
 	if (RawData.IsEmpty())
 	{
+		UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] ApplyDelta failed: no raw data available."));
 		return false;
 	}
+
+	UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Adapter] ApplyDelta kind=%s type=%s delta=%.6g interactive=%s values=%d"), ToTargetKindString(Target.Kind), ToNumericTypeString(Target.NumericType), Delta, bInteractive ? TEXT("true") : TEXT("false"), Baseline.BaselineValues.Num());
 
 	Target.PropertyHandle->NotifyPreChange();
 
@@ -94,7 +267,25 @@ bool FPropertyHandleValueAdapter::ApplyDelta(
 			NewValue = ValueLadder::Math::ApplyIntegerRounding(NewValue);
 		}
 
-		WriteScalar(RawPtr, Target.NumericType, NewValue);
+		if (Target.Kind == FValueLadderPropertyTarget::ETargetKind::TransformProxy)
+		{
+			switch (Target.NumericType)
+			{
+			case EValueLadderNumericType::Float:
+				WriteTransformComponent(*static_cast<FTransform3f*>(RawPtr), Target, NewValue);
+				break;
+			case EValueLadderNumericType::Double:
+				WriteTransformComponent(*static_cast<FTransform3d*>(RawPtr), Target, NewValue);
+				break;
+			default:
+				UE_LOG(LogValueLadder, Warning, TEXT("[Adapter] ApplyDelta failed: unsupported transform proxy type=%s."), ToNumericTypeString(Target.NumericType));
+				return false;
+			}
+		}
+		else
+		{
+			WriteScalar(RawPtr, Target.NumericType, NewValue);
+		}
 	}
 
 	Target.PropertyHandle->NotifyPostChange(bInteractive ? EPropertyChangeType::Interactive : EPropertyChangeType::ValueSet);
@@ -108,6 +299,7 @@ bool FPropertyHandleValueAdapter::ApplyDelta(
 
 bool FPropertyHandleValueAdapter::RestoreBaseline(const FValueLadderPropertyTarget& Target, const FValueLadderBaselineData& Baseline) const
 {
+	UE_LOG(LogValueLadder, Display, TEXT("[Adapter] RestoreBaseline requested."));
 	return ApplyDelta(Target, Baseline, 0.0, false);
 }
 
@@ -135,12 +327,12 @@ bool FPropertyHandleValueAdapter::PopulateConstraints(
 	FValueLadderConstraintRange& OutConstraints) const
 {
 	double ParsedValue = 0.0;
-	if (TryParseBound(Handle, NAME_ClampMin, ParsedValue) || TryParseBound(Handle, NAME_UIMin, ParsedValue))
+	if (TryParseBound(Handle, VLT_NAME_ClampMin, ParsedValue) || TryParseBound(Handle, VLT_NAME_UIMin, ParsedValue))
 	{
 		OutConstraints.MinValue = ParsedValue;
 	}
 
-	if (TryParseBound(Handle, NAME_ClampMax, ParsedValue) || TryParseBound(Handle, NAME_UIMax, ParsedValue))
+	if (TryParseBound(Handle, VLT_NAME_ClampMax, ParsedValue) || TryParseBound(Handle, VLT_NAME_UIMax, ParsedValue))
 	{
 		OutConstraints.MaxValue = ParsedValue;
 	}

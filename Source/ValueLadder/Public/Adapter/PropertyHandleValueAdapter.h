@@ -7,9 +7,25 @@
 
 struct FValueLadderPropertyTarget
 {
+	enum class ETargetKind : uint8
+	{
+		PropertyHandleScalar,
+		TransformProxy
+	};
+
+	enum class ETransformField : uint8
+	{
+		Location,
+		Rotation,
+		Scale
+	};
+
 	TSharedPtr<IPropertyHandle> PropertyHandle;
+	ETargetKind Kind = ETargetKind::PropertyHandleScalar;
 	EValueLadderNumericType NumericType = EValueLadderNumericType::Float;
 	bool bIsVectorComponent = false;
+	ETransformField TransformField = ETransformField::Location;
+	FName ComponentName;
 
 	bool IsValid() const
 	{

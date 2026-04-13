@@ -25,5 +25,5 @@ public:
 private:
 	static bool ResolveNumericType(const TSharedRef<IPropertyHandle>& PropertyHandle, EValueLadderNumericType& OutType);
 
-	FValueLadderTargetHandle RegisteredHandle = 0;
+	TArray<FValueLadderTargetHandle> RegisteredHandles;
 };

@@ -29,6 +29,18 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Input", meta = (ClampMin = "0.5", UIMin = "0.5", ClampMax = "32.0", UIMax = "32.0"))
 	float DragActivationThresholdPx = 6.0f;
 
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
+	TArray<float> FloatLadders = {0.1f, 1.0f, 10.0f, 100.0f, 1000.0f, 10000.0f};
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder", meta = (ClampMin = "0"))
+	int32 DefaultFloatLadderIndex = 3;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
+	TArray<int32> IntLadders = {1, 10, 100, 1000};
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder", meta = (ClampMin = "0"))
+	int32 DefaultIntLadderIndex = 0;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Input", meta = (ClampMin = "0.0001", UIMin = "0.0001"))
 	float ShiftStepMultiplier = 10.0f;
 
@@ -51,6 +63,10 @@ public:
 	bool bShowOverlay = true;
 
 	double ResolveStepMultiplier(bool bShiftDown, bool bCtrlDown) const;
-	double ComputeDeltaFromPixelOffset(double PixelOffset, bool bShiftDown, bool bCtrlDown) const;
+	double ComputeDeltaFromPixelOffset(double PixelOffset, double LadderStep, bool bShiftDown, bool bCtrlDown) const;
 	bool SupportsType(EValueLadderNumericType NumericType) const;
+	int32 GetDefaultLadderIndex(EValueLadderNumericType NumericType) const;
+	int32 ClampLadderIndex(EValueLadderNumericType NumericType, int32 Index) const;
+	double GetLadderStep(EValueLadderNumericType NumericType, int32 Index) const;
+	void BuildLadderDisplayValues(EValueLadderNumericType NumericType, TArray<FText>& OutValues) const;
 };

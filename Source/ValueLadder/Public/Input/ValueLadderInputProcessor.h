@@ -20,16 +20,23 @@ public:
 	virtual bool HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent) override;
 
 private:
-	void ClearPendingActivation();
-	void EnsureOverlay(FSlateApplication& SlateApp, const FVector2D& CursorPosition);
-	void UpdateOverlay(const FVector2D& CursorPosition);
+	bool InitializeGesture(const UValueLadderSettings& Settings, FSlateApplication& SlateApp, const FPointerEvent& MouseEvent, const FValueLadderPropertyTarget& Target);
+	void EnsureOverlay(FSlateApplication& SlateApp);
+	void UpdateOverlay();
 	void DestroyOverlay();
+	void EndGesture(bool bCommit);
+	int32 ResolveActiveLadderIndex(const UValueLadderSettings& Settings, const FVector2D& CursorPosition) const;
 
 	bool bDragging = false;
-	bool bPendingActivation = false;
 	FVector2D DragStartPosition = FVector2D::ZeroVector;
-	FValueLadderPropertyTarget PendingTarget;
+	FVector2D OverlayAnchorPosition = FVector2D::ZeroVector;
+	FValueLadderPropertyTarget ActiveTarget;
 	FValueLadderSession Session;
+	TArray<FText> ActiveLadderValues;
+	int32 StartLadderIndex = 0;
+	int32 ActiveLadderIndex = 0;
+	uint64 ActiveGestureId = 0;
+	uint64 NextGestureId = 1;
 
 	TSharedPtr<SValueLadderOverlay> OverlayWidget;
 	TWeakPtr<SWindow> OverlayWindow;

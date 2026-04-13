@@ -31,15 +31,32 @@ struct FValueLadderConstraintRange
 	}
 };
 
-namespace ValueLadder::Math
-{
-	inline double ComputeDelta(const double PixelDelta, const double Sensitivity, const double StepMultiplier)
+	namespace ValueLadder::Math
 	{
-		return PixelDelta * Sensitivity * StepMultiplier;
-	}
+		inline int32 ComputeBucketCount(const double PixelDelta, const double ThresholdPx)
+		{
+			const double SafeThresholdPx = FMath::Max(ThresholdPx, KINDA_SMALL_NUMBER);
+			return FMath::TruncToInt(PixelDelta / SafeThresholdPx);
+		}
 
-	inline double ApplyIntegerRounding(const double InValue)
-	{
-		return FMath::RoundToDouble(InValue);
-	}
+		inline double ComputeDelta(const double PixelDelta, const double ThresholdPx, const double LadderStep, const double StepMultiplier)
+		{
+			return LadderStep * static_cast<double>(ComputeBucketCount(PixelDelta, ThresholdPx)) * StepMultiplier;
+		}
+
+		inline double ComputeSegmentedDelta(
+			const double BaseDelta,
+			const double PixelOffset,
+			const double SegmentStartPixelOffset,
+			const double ThresholdPx,
+			const double LadderStep,
+			const double StepMultiplier)
+		{
+			return BaseDelta + ComputeDelta(PixelOffset - SegmentStartPixelOffset, ThresholdPx, LadderStep, StepMultiplier);
+		}
+
+		inline double ApplyIntegerRounding(const double InValue)
+		{
+			return FMath::RoundToDouble(InValue);
+		}
 }

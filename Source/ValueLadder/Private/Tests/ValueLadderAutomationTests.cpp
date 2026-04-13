@@ -12,8 +12,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FValueLadderDeltaMathTest::RunTest(const FString& Parameters)
 {
-	const double Delta = ValueLadder::Math::ComputeDelta(12.0, 0.5, 10.0);
-	TestEqual(TEXT("Delta should honor sensitivity and multiplier"), Delta, 60.0);
+	TestEqual(TEXT("Sub-threshold movement should not change value"), ValueLadder::Math::ComputeDelta(5.0, 6.0, 10.0, 1.0), 0.0);
+	TestEqual(TEXT("Positive movement should quantize to whole buckets"), ValueLadder::Math::ComputeDelta(17.0, 6.0, 10.0, 1.0), 20.0);
+	TestEqual(TEXT("Negative movement should quantize symmetrically"), ValueLadder::Math::ComputeDelta(-17.0, 6.0, 10.0, 1.0), -20.0);
+	TestEqual(TEXT("Multiplier should scale quantized ladder delta"), ValueLadder::Math::ComputeDelta(17.0, 6.0, 10.0, 10.0), 200.0);
+	TestEqual(TEXT("Segmented delta should preserve accumulated value at a row switch"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 17.0, 17.0, 6.0, 100.0, 1.0), 20.0);
+	TestEqual(TEXT("Segmented delta should continue from the switch point using the new ladder step"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 29.0, 17.0, 6.0, 100.0, 1.0), 220.0);
 
 	return true;
 }
@@ -85,6 +89,10 @@ bool FValueLadderDefaultInputSettingsTest::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("Middle mouse should not require Alt by default"), Settings->bRequireAltModifier);
 	TestTrue(TEXT("Default trigger should use middle mouse"), Settings->TriggerMouseButton == EKeys::MiddleMouseButton);
+	TestEqual(TEXT("Float ladder default index should match old behavior"), Settings->GetDefaultLadderIndex(EValueLadderNumericType::Float), 3);
+	TestEqual(TEXT("Int ladder default index should match old behavior"), Settings->GetDefaultLadderIndex(EValueLadderNumericType::Int32), 0);
+	TestEqual(TEXT("Float ladder should expose old default step"), Settings->GetLadderStep(EValueLadderNumericType::Float, 3), 100.0);
+	TestEqual(TEXT("Int ladder should expose old default step"), Settings->GetLadderStep(EValueLadderNumericType::Int32, 0), 1.0);
 
 	return true;
 }

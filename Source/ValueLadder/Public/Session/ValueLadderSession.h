@@ -11,7 +11,7 @@ class FValueLadderSession
 {
 public:
 	bool Begin(const FValueLadderPropertyTarget& InTarget, const FText& TransactionText, FString& OutError);
-	bool UpdateFromPixelOffset(double PixelOffset, bool bShiftDown, bool bCtrlDown, const UValueLadderSettings& Settings, FString& OutError);
+	bool UpdateFromPixelOffset(double PixelOffset, double LadderStep, bool bShiftDown, bool bCtrlDown, const UValueLadderSettings& Settings, FString& OutError);
 	void Commit();
 	void Cancel();
 
@@ -31,4 +31,9 @@ private:
 	bool bActive = false;
 	double CurrentDelta = 0.0;
 	double CurrentMultiplier = 1.0;
+	bool bHasSegmentContext = false;
+	double SegmentBaseDelta = 0.0;
+	double SegmentStartPixelOffset = 0.0;
+	double SegmentLadderStep = 0.0;
+	double SegmentMultiplier = 1.0;
 };
