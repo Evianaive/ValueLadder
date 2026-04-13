@@ -89,15 +89,25 @@ bool FValueLadderSession::UpdateFromPixelOffset(
 		Settings.DragActivationThresholdPx,
 		SegmentLadderStep,
 		SegmentMultiplier);
+	const double SegmentPixelOffset = PixelOffset - SegmentStartPixelOffset;
+	const int32 NewTickCount = ValueLadder::Math::ComputeBucketCount(SegmentPixelOffset, Settings.DragActivationThresholdPx);
+	const double NewTickProgress = ValueLadder::Math::ComputeTickProgress(SegmentPixelOffset, Settings.DragActivationThresholdPx);
+	const double NewPixelsToNextTick = ValueLadder::Math::ComputePixelsToNextTick(SegmentPixelOffset, Settings.DragActivationThresholdPx);
 
 	if (FMath::IsNearlyEqual(CurrentMultiplier, NewMultiplier) && FMath::IsNearlyEqual(CurrentDelta, NewDelta))
 	{
+		CurrentTickCount = NewTickCount;
+		CurrentTickProgress = NewTickProgress;
+		CurrentPixelsToNextTick = NewPixelsToNextTick;
 		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Session] Update skipped; quantized delta unchanged (delta=%.6g multiplier=%.6g)."), NewDelta, NewMultiplier);
 		return true;
 	}
 
 	CurrentMultiplier = NewMultiplier;
 	CurrentDelta = NewDelta;
+	CurrentTickCount = NewTickCount;
+	CurrentTickProgress = NewTickProgress;
+	CurrentPixelsToNextTick = NewPixelsToNextTick;
 
 	if (!Adapter.ApplyDelta(Target, Baseline, CurrentDelta, true))
 	{
@@ -162,6 +172,9 @@ void FValueLadderSession::Reset()
 	SegmentStartPixelOffset = 0.0;
 	SegmentLadderStep = 0.0;
 	SegmentMultiplier = 1.0;
+	CurrentTickCount = 0;
+	CurrentTickProgress = 0.0;
+	CurrentPixelsToNextTick = 0.0;
 	Target = FValueLadderPropertyTarget();
 	Baseline = FValueLadderBaselineData();
 	ActiveTransaction.Reset();

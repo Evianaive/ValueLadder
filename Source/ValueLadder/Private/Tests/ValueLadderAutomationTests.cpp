@@ -12,12 +12,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FValueLadderDeltaMathTest::RunTest(const FString& Parameters)
 {
-	TestEqual(TEXT("Sub-threshold movement should not change value"), ValueLadder::Math::ComputeDelta(5.0, 6.0, 10.0, 1.0), 0.0);
-	TestEqual(TEXT("Positive movement should quantize to whole buckets"), ValueLadder::Math::ComputeDelta(17.0, 6.0, 10.0, 1.0), 20.0);
-	TestEqual(TEXT("Negative movement should quantize symmetrically"), ValueLadder::Math::ComputeDelta(-17.0, 6.0, 10.0, 1.0), -20.0);
-	TestEqual(TEXT("Multiplier should scale quantized ladder delta"), ValueLadder::Math::ComputeDelta(17.0, 6.0, 10.0, 10.0), 200.0);
-	TestEqual(TEXT("Segmented delta should preserve accumulated value at a row switch"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 17.0, 17.0, 6.0, 100.0, 1.0), 20.0);
-	TestEqual(TEXT("Segmented delta should continue from the switch point using the new ladder step"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 29.0, 17.0, 6.0, 100.0, 1.0), 220.0);
+	TestEqual(TEXT("Sub-threshold movement should not change value"), ValueLadder::Math::ComputeDelta(5.0, 12.0, 10.0, 1.0), 0.0);
+	TestEqual(TEXT("Positive movement should quantize to whole buckets"), ValueLadder::Math::ComputeDelta(29.0, 12.0, 10.0, 1.0), 20.0);
+	TestEqual(TEXT("Negative movement should quantize symmetrically"), ValueLadder::Math::ComputeDelta(-29.0, 12.0, 10.0, 1.0), -20.0);
+	TestEqual(TEXT("Multiplier should scale quantized ladder delta"), ValueLadder::Math::ComputeDelta(29.0, 12.0, 10.0, 10.0), 200.0);
+	TestEqual(TEXT("Segmented delta should preserve accumulated value at a row switch"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 29.0, 29.0, 12.0, 100.0, 1.0), 20.0);
+	TestEqual(TEXT("Segmented delta should continue from the switch point using the new ladder step"), ValueLadder::Math::ComputeSegmentedDelta(20.0, 53.0, 29.0, 12.0, 100.0, 1.0), 220.0);
 
 	return true;
 }
@@ -29,11 +29,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FValueLadderSelectionColumnGateTest::RunTest(const FString& Parameters)
 {
-	TestTrue(TEXT("Offset inside selection column should report unlocked"), ValueLadder::Math::IsInsideSelectionColumn(40.0, 180.0));
-	TestFalse(TEXT("Offset outside selection column should report locked"), ValueLadder::Math::IsInsideSelectionColumn(100.0, 180.0));
-	TestEqual(TEXT("Movement inside selection column should not accumulate"), ValueLadder::Math::ApplySelectionColumnGate(40.0, 180.0), 0.0);
-	TestEqual(TEXT("Movement should begin accumulating after leaving the positive edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(120.0, 180.0), 30.0);
-	TestEqual(TEXT("Movement should begin accumulating after leaving the negative edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(-120.0, 180.0), -30.0);
+	TestTrue(TEXT("Offset inside selection column should report unlocked"), ValueLadder::Math::IsInsideSelectionColumn(40.0, 100.0));
+	TestFalse(TEXT("Offset outside selection column should report locked"), ValueLadder::Math::IsInsideSelectionColumn(60.0, 100.0));
+	TestEqual(TEXT("Movement inside selection column should not accumulate"), ValueLadder::Math::ApplySelectionColumnGate(40.0, 100.0), 0.0);
+	TestEqual(TEXT("Movement should begin accumulating after leaving the positive edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(80.0, 100.0), 30.0);
+	TestEqual(TEXT("Movement should begin accumulating after leaving the negative edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(-80.0, 100.0), -30.0);
+	TestEqual(TEXT("Positive remainder within a tick should be tracked"), ValueLadder::Math::ComputeTickRemainderPx(29.0, 12.0), 5.0);
+	TestEqual(TEXT("Negative remainder within a tick should be tracked"), ValueLadder::Math::ComputeTickRemainderPx(-29.0, 12.0), -5.0);
+	TestEqual(TEXT("Tick progress should reflect partial travel"), ValueLadder::Math::ComputeTickProgress(29.0, 12.0), 5.0 / 12.0);
+	TestEqual(TEXT("Pixels to next tick should show the remaining travel"), ValueLadder::Math::ComputePixelsToNextTick(29.0, 12.0), 7.0);
 
 	return true;
 }
@@ -109,6 +113,7 @@ bool FValueLadderDefaultInputSettingsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Int ladder default index should match old behavior"), Settings->GetDefaultLadderIndex(EValueLadderNumericType::Int32), 0);
 	TestEqual(TEXT("Float ladder should expose old default step"), Settings->GetLadderStep(EValueLadderNumericType::Float, 3), 100.0);
 	TestEqual(TEXT("Int ladder should expose old default step"), Settings->GetLadderStep(EValueLadderNumericType::Int32, 0), 1.0);
+	TestEqual(TEXT("Default threshold should use 12px"), static_cast<double>(Settings->DragActivationThresholdPx), 12.0);
 
 	return true;
 }

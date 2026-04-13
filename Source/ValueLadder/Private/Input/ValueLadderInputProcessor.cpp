@@ -283,7 +283,13 @@ void FValueLadderInputProcessor::UpdateOverlay()
 {
 	if (OverlayWidget.IsValid())
 	{
-		OverlayWidget->UpdateDisplay(ActiveLadderValues, ActiveLadderIndex, Session.GetCurrentMultiplier(), Session.GetCurrentDelta(), Session.GetPreviewValueText(), bSelectionLocked);
+		const UValueLadderSettings* Settings = GetDefault<UValueLadderSettings>();
+		const double TickThresholdPx = Settings != nullptr ? static_cast<double>(Settings->DragActivationThresholdPx) : 12.0;
+		const double TickValueDelta = Settings != nullptr
+			? Settings->GetLadderStep(ActiveTarget.NumericType, ActiveLadderIndex) * Session.GetCurrentMultiplier()
+			: 0.0;
+		const double PixelsToNextTick = Session.GetCurrentPixelsToNextTick() > 0.0 ? Session.GetCurrentPixelsToNextTick() : TickThresholdPx;
+		OverlayWidget->UpdateDisplay(ActiveLadderValues, ActiveLadderIndex, Session.GetCurrentMultiplier(), Session.GetCurrentDelta(), Session.GetPreviewValueText(), bSelectionLocked, Session.GetCurrentTickCount(), Session.GetCurrentTickProgress(), PixelsToNextTick, TickThresholdPx, TickValueDelta);
 		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Overlay] Gesture=%llu updated overlay. ActiveIndex=%d Locked=%s Delta=%.6g Multiplier=%.6g"), ActiveGestureId, ActiveLadderIndex, bSelectionLocked ? TEXT("true") : TEXT("false"), Session.GetCurrentDelta(), Session.GetCurrentMultiplier());
 	}
 	else

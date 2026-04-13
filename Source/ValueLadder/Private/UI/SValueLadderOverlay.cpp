@@ -4,6 +4,7 @@
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
@@ -16,7 +17,7 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 	ChildSlot
 	[
 		SNew(SBox)
-		.WidthOverride(ValueLadder::UI::SelectionColumnWidthPx)
+		.WidthOverride(ValueLadder::UI::OverlayWidthPx)
 		[
 			SNew(SBorder)
 			.BorderImage(FAppStyle::Get().GetBrush(TEXT("Menu.Background")))
@@ -27,7 +28,11 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 				.AutoWidth()
 				.Padding(0.0f, 0.0f, 8.0f, 0.0f)
 				[
-					SAssignNew(LadderListBox, SVerticalBox)
+					SNew(SBox)
+					.WidthOverride(ValueLadder::UI::SelectionColumnWidthPx)
+					[
+						SAssignNew(LadderListBox, SVerticalBox)
+					]
 				]
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
@@ -38,6 +43,27 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 					[
 						SAssignNew(LockStateTextBlock, STextBlock)
 						.Text(FText::FromString(TEXT("Select delta")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(TickFormulaTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("1 tick = 12 px -> 100")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(TickProgressTextBlock, STextBlock)
+						.Text(FText::FromString(TEXT("Ticks +0 | Next 12 px")))
+					]
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
+					[
+						SAssignNew(TickProgressBar, SProgressBar)
+						.Percent(0.0f)
 					]
 					+ SVerticalBox::Slot()
 					.AutoHeight()
@@ -66,7 +92,7 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 	];
 }
 
-void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue, const bool bSelectionLocked)
+void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue, const bool bSelectionLocked, const int32 TickCount, const double TickProgress, const double PixelsToNextTick, const double TickThresholdPx, const double TickValueDelta)
 {
 	if (LadderRowBorders.Num() != InLadderValues.Num())
 	{
@@ -85,6 +111,22 @@ void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, con
 
 		LockStateTextBlock->SetText(LockText);
 		LockStateTextBlock->SetColorAndOpacity(bSelectionLocked ? FSlateColor(FLinearColor(1.0f, 0.8f, 0.2f)) : FSlateColor::UseForeground());
+	}
+
+	if (TickFormulaTextBlock.IsValid())
+	{
+		TickFormulaTextBlock->SetText(FText::FromString(FString::Printf(TEXT("1 tick = %.3g px -> %.6g"), TickThresholdPx, TickValueDelta)));
+	}
+
+	if (TickProgressTextBlock.IsValid())
+	{
+		TickProgressTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Ticks this row %+d | Next %.1f px"), TickCount, PixelsToNextTick)));
+	}
+
+	if (TickProgressBar.IsValid())
+	{
+		TickProgressBar->SetPercent(TickProgress);
+		TickProgressBar->SetFillColorAndOpacity(bSelectionLocked ? FLinearColor(1.0f, 0.62f, 0.0f, 0.85f) : FLinearColor(0.35f, 0.35f, 0.35f, 0.65f));
 	}
 
 	if (MultiplierTextBlock.IsValid())

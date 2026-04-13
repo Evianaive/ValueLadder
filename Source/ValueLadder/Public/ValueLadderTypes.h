@@ -56,10 +56,34 @@ struct FValueLadderConstraintRange
 			return SignedDirection * (AbsoluteOffset - HalfWidthPx);
 		}
 
+		inline double GetSafeThresholdPx(const double ThresholdPx)
+		{
+			return FMath::Max(ThresholdPx, KINDA_SMALL_NUMBER);
+		}
+
 		inline int32 ComputeBucketCount(const double PixelDelta, const double ThresholdPx)
 		{
-			const double SafeThresholdPx = FMath::Max(ThresholdPx, KINDA_SMALL_NUMBER);
+			const double SafeThresholdPx = GetSafeThresholdPx(ThresholdPx);
 			return FMath::TruncToInt(PixelDelta / SafeThresholdPx);
+		}
+
+		inline double ComputeTickRemainderPx(const double PixelDelta, const double ThresholdPx)
+		{
+			const double SafeThresholdPx = GetSafeThresholdPx(ThresholdPx);
+			return PixelDelta - static_cast<double>(ComputeBucketCount(PixelDelta, SafeThresholdPx)) * SafeThresholdPx;
+		}
+
+		inline double ComputeTickProgress(const double PixelDelta, const double ThresholdPx)
+		{
+			const double SafeThresholdPx = GetSafeThresholdPx(ThresholdPx);
+			return FMath::Clamp(FMath::Abs(ComputeTickRemainderPx(PixelDelta, SafeThresholdPx)) / SafeThresholdPx, 0.0, 1.0);
+		}
+
+		inline double ComputePixelsToNextTick(const double PixelDelta, const double ThresholdPx)
+		{
+			const double SafeThresholdPx = GetSafeThresholdPx(ThresholdPx);
+			const double RemainderPx = FMath::Abs(ComputeTickRemainderPx(PixelDelta, SafeThresholdPx));
+			return FMath::IsNearlyZero(RemainderPx) ? SafeThresholdPx : SafeThresholdPx - RemainderPx;
 		}
 
 		inline double ComputeDelta(const double PixelDelta, const double ThresholdPx, const double LadderStep, const double StepMultiplier)

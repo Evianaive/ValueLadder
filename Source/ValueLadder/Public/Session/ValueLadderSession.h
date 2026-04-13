@@ -18,6 +18,9 @@ public:
 	bool IsActive() const { return bActive; }
 	double GetCurrentDelta() const { return CurrentDelta; }
 	double GetCurrentMultiplier() const { return CurrentMultiplier; }
+	int32 GetCurrentTickCount() const { return CurrentTickCount; }
+	double GetCurrentTickProgress() const { return CurrentTickProgress; }
+	double GetCurrentPixelsToNextTick() const { return CurrentPixelsToNextTick; }
 	FString GetPreviewValueText() const;
 
 private:
@@ -36,4 +39,7 @@ private:
 	double SegmentStartPixelOffset = 0.0;
 	double SegmentLadderStep = 0.0;
 	double SegmentMultiplier = 1.0;
+	int32 CurrentTickCount = 0;
+	double CurrentTickProgress = 0.0;
+	double CurrentPixelsToNextTick = 0.0;
 };

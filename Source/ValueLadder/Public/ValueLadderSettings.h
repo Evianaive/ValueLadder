@@ -27,7 +27,7 @@ public:
 	float DragSensitivity = 0.05f;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Input", meta = (ClampMin = "0.5", UIMin = "0.5", ClampMax = "32.0", UIMax = "32.0"))
-	float DragActivationThresholdPx = 6.0f;
+	float DragActivationThresholdPx = 12.0f;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
 	TArray<float> FloatLadders = {0.1f, 1.0f, 10.0f, 100.0f, 1000.0f, 10000.0f};
