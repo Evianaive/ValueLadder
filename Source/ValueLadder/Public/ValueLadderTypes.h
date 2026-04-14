@@ -33,27 +33,11 @@ struct FValueLadderConstraintRange
 
 	namespace ValueLadder::Math
 	{
-		inline double ComputeSelectionColumnHalfWidth(const double ColumnWidthPx)
+		inline int32 ResolveLadderIndexFromVerticalOffset(const int32 StartIndex, const double VerticalOffsetPx, const double RowHeightPx, const int32 MinIndex, const int32 MaxIndex)
 		{
-			return FMath::Max(ColumnWidthPx * 0.5, 0.0);
-		}
-
-		inline bool IsInsideSelectionColumn(const double PixelOffset, const double ColumnWidthPx)
-		{
-			return FMath::Abs(PixelOffset) <= ComputeSelectionColumnHalfWidth(ColumnWidthPx);
-		}
-
-		inline double ApplySelectionColumnGate(const double PixelOffset, const double ColumnWidthPx)
-		{
-			const double HalfWidthPx = ComputeSelectionColumnHalfWidth(ColumnWidthPx);
-			const double AbsoluteOffset = FMath::Abs(PixelOffset);
-			if (AbsoluteOffset <= HalfWidthPx)
-			{
-				return 0.0;
-			}
-
-			const double SignedDirection = PixelOffset < 0.0 ? -1.0 : 1.0;
-			return SignedDirection * (AbsoluteOffset - HalfWidthPx);
+			const double SafeRowHeightPx = FMath::Max(RowHeightPx, KINDA_SMALL_NUMBER);
+			const int32 LadderIndexOffset = FMath::RoundToInt(VerticalOffsetPx / SafeRowHeightPx);
+			return FMath::Clamp(StartIndex + LadderIndexOffset, MinIndex, MaxIndex);
 		}
 
 		inline double GetSafeThresholdPx(const double ThresholdPx)

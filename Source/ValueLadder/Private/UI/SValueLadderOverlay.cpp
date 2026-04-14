@@ -1,19 +1,39 @@
 #include "UI/SValueLadderOverlay.h"
 
+#include "ValueLadderLog.h"
+
 #include "Styling/AppStyle.h"
-#include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SBorder.h"
-#include "Widgets/Notifications/SProgressBar.h"
+#include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 
 namespace
 {
-	constexpr float LadderRowPadding = 2.0f;
+	constexpr float CellOuterPadding = 2.0f;
+	constexpr float StepLinePadding = 1.0f;
+	constexpr float ActiveValuePadding = 1.0f;
+
+	FLinearColor GetChromeColor()
+	{
+		return FLinearColor(0.06f, 0.07f, 0.09f, 0.96f);
+	}
+
+	FLinearColor GetIdleCellColor()
+	{
+		return FLinearColor(0.14f, 0.16f, 0.20f, 0.96f);
+	}
+
+	FLinearColor GetActiveCellColor()
+	{
+		return FLinearColor(0.98f, 0.58f, 0.08f, 0.94f);
+	}
 }
 
 void SValueLadderOverlay::Construct(const FArguments& InArgs)
 {
+	UE_LOG(LogValueLadder, Display, TEXT("[OverlayUI] Construct width=%.1f viewportHeight=%.1f rowHeight=%.1f"), ValueLadder::UI::OverlayWidthPx, ValueLadder::UI::LadderViewportHeightPx, ValueLadder::UI::LadderCellHeightPx);
+
 	ChildSlot
 	[
 		SNew(SBox)
@@ -21,168 +41,135 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 		[
 			SNew(SBorder)
 			.BorderImage(FAppStyle::Get().GetBrush(TEXT("Menu.Background")))
-			.Padding(FMargin(8.0f))
+			.BorderBackgroundColor(GetChromeColor())
+			.Padding(FMargin(4.0f))
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(0.0f, 0.0f, 8.0f, 0.0f)
+				SAssignNew(LadderViewportBox, SBox)
+				.WidthOverride(ValueLadder::UI::LadderListWidthPx)
+				.HeightOverride(ValueLadder::UI::LadderViewportHeightPx)
 				[
-					SNew(SBox)
-					.WidthOverride(ValueLadder::UI::SelectionColumnWidthPx)
-					[
-						SAssignNew(LadderListBox, SVerticalBox)
-					]
-				]
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					[
-						SAssignNew(LockStateTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("Select delta")))
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(TickFormulaTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("1 tick = 12 px -> 100")))
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(TickProgressTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("Ticks +0 | Next 12 px")))
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(TickProgressBar, SProgressBar)
-						.Percent(0.0f)
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(MultiplierTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("x1.0")))
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(DeltaTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("Delta 0")))
-					]
-					+ SVerticalBox::Slot()
-					.AutoHeight()
-					.Padding(0.0f, 4.0f, 0.0f, 0.0f)
-					[
-						SAssignNew(PreviewTextBlock, STextBlock)
-						.Text(FText::FromString(TEXT("Value: -")))
-					]
+					SAssignNew(LadderListBox, SVerticalBox)
 				]
 			]
 		]
 	];
 }
 
-void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue, const bool bSelectionLocked, const int32 TickCount, const double TickProgress, const double PixelsToNextTick, const double TickThresholdPx, const double TickValueDelta)
+void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, const int32 InActiveIndex, const double InMultiplier, const double InDelta, const FString& InPreviewValue, const bool bCursorLocked, const int32 TickCount, const double TickProgress, const double PixelsToNextTick, const double TickThresholdPx, const double TickValueDelta, const double VerticalDragOffsetPx, const double HorizontalDragOffsetPx)
 {
+	if (InLadderValues.Num() == 0)
+	{
+		UE_LOG(LogValueLadder, Warning, TEXT("[OverlayUI] UpdateDisplay received zero rows. activeIndex=%d previewLen=%d cursorLocked=%s verticalOffset=%.2f horizontalOffset=%.2f"), InActiveIndex, InPreviewValue.Len(), bCursorLocked ? TEXT("true") : TEXT("false"), VerticalDragOffsetPx, HorizontalDragOffsetPx);
+	}
+	else if (!InLadderValues.IsValidIndex(InActiveIndex))
+	{
+		UE_LOG(LogValueLadder, Warning, TEXT("[OverlayUI] UpdateDisplay received invalid active index=%d for rows=%d. previewLen=%d"), InActiveIndex, InLadderValues.Num(), InPreviewValue.Len());
+	}
+
 	if (LadderRowBorders.Num() != InLadderValues.Num())
 	{
 		RebuildLadderRows(InLadderValues);
 	}
 
-	UpdateLadderHighlight(InActiveIndex, bSelectionLocked);
-
-	if (LockStateTextBlock.IsValid())
+	if (!LadderListBox.IsValid())
 	{
-		FText LockText = FText::FromString(TEXT("Select delta"));
-		if (bSelectionLocked && InLadderValues.IsValidIndex(InActiveIndex))
+		UE_LOG(LogValueLadder, Warning, TEXT("[OverlayUI] UpdateDisplay has invalid LadderListBox. rows=%d activeIndex=%d"), InLadderValues.Num(), InActiveIndex);
+	}
+	else
+	{
+		const float ActiveRowTopPx = static_cast<float>(FMath::Max(InActiveIndex, 0)) * ValueLadder::UI::LadderCellHeightPx;
+		const float MinVerticalOffsetPx = ActiveRowTopPx - (ValueLadder::UI::LadderViewportHeightPx - ValueLadder::UI::LadderCellHeightPx);
+		const float MaxVerticalOffsetPx = ActiveRowTopPx;
+		const float ClampedVerticalOffsetPx = FMath::Clamp(static_cast<float>(VerticalDragOffsetPx), MinVerticalOffsetPx, MaxVerticalOffsetPx);
+		if (!FMath::IsNearlyEqual(ClampedVerticalOffsetPx, static_cast<float>(VerticalDragOffsetPx), 0.5f))
 		{
-			LockText = FText::FromString(FString::Printf(TEXT("Locked: %s"), *InLadderValues[InActiveIndex].ToString()));
+			UE_LOG(LogValueLadder, Verbose, TEXT("[OverlayUI] Vertical offset clamped from %.2f to %.2f. activeIndex=%d rows=%d bounds=[%.2f, %.2f]"), VerticalDragOffsetPx, ClampedVerticalOffsetPx, InActiveIndex, InLadderValues.Num(), MinVerticalOffsetPx, MaxVerticalOffsetPx);
+		}
+		LadderListBox->SetRenderTransform(FSlateRenderTransform(FVector2D(0.0f, -ClampedVerticalOffsetPx)));
+	}
+
+	for (int32 Index = 0; Index < LadderRowStepTexts.Num(); ++Index)
+	{
+		if (LadderRowStepTexts[Index].IsValid() && InLadderValues.IsValidIndex(Index))
+		{
+			LadderRowStepTexts[Index]->SetText(InLadderValues[Index]);
 		}
 
-		LockStateTextBlock->SetText(LockText);
-		LockStateTextBlock->SetColorAndOpacity(bSelectionLocked ? FSlateColor(FLinearColor(1.0f, 0.8f, 0.2f)) : FSlateColor::UseForeground());
+		if (LadderRowValueTexts.IsValidIndex(Index) && LadderRowValueTexts[Index].IsValid())
+		{
+			const bool bIsActive = Index == InActiveIndex;
+			LadderRowValueTexts[Index]->SetText(FText::FromString(bIsActive ? InPreviewValue : FString()));
+			LadderRowValueTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D(bIsActive ? static_cast<float>(-HorizontalDragOffsetPx * 0.15) : 0.0f, 0.0f)));
+		}
 	}
 
-	if (TickFormulaTextBlock.IsValid())
-	{
-		TickFormulaTextBlock->SetText(FText::FromString(FString::Printf(TEXT("1 tick = %.3g px -> %.6g"), TickThresholdPx, TickValueDelta)));
-	}
-
-	if (TickProgressTextBlock.IsValid())
-	{
-		TickProgressTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Ticks this row %+d | Next %.1f px"), TickCount, PixelsToNextTick)));
-	}
-
-	if (TickProgressBar.IsValid())
-	{
-		TickProgressBar->SetPercent(TickProgress);
-		TickProgressBar->SetFillColorAndOpacity(bSelectionLocked ? FLinearColor(1.0f, 0.62f, 0.0f, 0.85f) : FLinearColor(0.35f, 0.35f, 0.35f, 0.65f));
-	}
-
-	if (MultiplierTextBlock.IsValid())
-	{
-		MultiplierTextBlock->SetText(FText::FromString(FString::Printf(TEXT("x%.3g"), InMultiplier)));
-	}
-
-	if (DeltaTextBlock.IsValid())
-	{
-		DeltaTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Delta %.6g"), InDelta)));
-	}
-
-	if (PreviewTextBlock.IsValid())
-	{
-		PreviewTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Value: %s"), *InPreviewValue)));
-	}
+	UpdateLadderHighlight(InActiveIndex, bCursorLocked);
 }
 
 void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 {
 	LadderRowBorders.Reset();
-	LadderRowTexts.Reset();
+	LadderRowStepTexts.Reset();
+	LadderRowValueTexts.Reset();
 
 	if (!LadderListBox.IsValid())
 	{
+		UE_LOG(LogValueLadder, Warning, TEXT("[OverlayUI] RebuildLadderRows skipped because LadderListBox is invalid. rows=%d"), InLadderValues.Num());
 		return;
 	}
 
+	UE_LOG(LogValueLadder, Display, TEXT("[OverlayUI] RebuildLadderRows rows=%d"), InLadderValues.Num());
+
 	LadderListBox->ClearChildren();
 	LadderRowBorders.Reserve(InLadderValues.Num());
-	LadderRowTexts.Reserve(InLadderValues.Num());
+	LadderRowStepTexts.Reserve(InLadderValues.Num());
+	LadderRowValueTexts.Reserve(InLadderValues.Num());
 
 	for (const FText& LadderValue : InLadderValues)
 	{
 		TSharedPtr<SBorder> RowBorder;
-		TSharedPtr<STextBlock> RowText;
+		TSharedPtr<STextBlock> StepText;
+		TSharedPtr<STextBlock> ValueText;
 
 		LadderListBox->AddSlot()
 		.AutoHeight()
 		[
-			SAssignNew(RowBorder, SBorder)
-			.BorderImage(FAppStyle::Get().GetBrush(TEXT("WhiteBrush")))
-			.BorderBackgroundColor(FLinearColor::Transparent)
-			.Padding(FMargin(6.0f, LadderRowPadding))
+			SNew(SBox)
+			.HeightOverride(ValueLadder::UI::LadderCellHeightPx)
 			[
-				SAssignNew(RowText, STextBlock)
-				.Text(LadderValue)
+				SAssignNew(RowBorder, SBorder)
+				.BorderImage(FAppStyle::Get().GetBrush(TEXT("WhiteBrush")))
+				.BorderBackgroundColor(GetIdleCellColor())
+				.Padding(FMargin(6.0f, 3.0f))
+				[
+					SNew(SVerticalBox)
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0.0f, StepLinePadding, 0.0f, 0.0f)
+					[
+						SAssignNew(StepText, STextBlock)
+						.Text(LadderValue)
+						.ColorAndOpacity(FSlateColor(FLinearColor(0.80f, 0.82f, 0.86f)))
+					]
+					+ SVerticalBox::Slot()
+					.FillHeight(1.0f)
+					.Padding(0.0f, ActiveValuePadding, 0.0f, 0.0f)
+					[
+						SAssignNew(ValueText, STextBlock)
+						.Text(FText::GetEmpty())
+						.ColorAndOpacity(FSlateColor(FLinearColor(1.0f, 1.0f, 1.0f)))
+					]
+				]
 			]
 		];
 
 		LadderRowBorders.Add(RowBorder);
-		LadderRowTexts.Add(RowText);
+		LadderRowStepTexts.Add(StepText);
+		LadderRowValueTexts.Add(ValueText);
 	}
 }
 
-void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex, const bool bSelectionLocked)
+void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex, const bool bCursorLocked)
 {
 	for (int32 Index = 0; Index < LadderRowBorders.Num(); ++Index)
 	{
@@ -192,13 +179,17 @@ void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex, const
 		}
 
 		const bool bIsActive = Index == InActiveIndex;
-		const FLinearColor ActiveColor = bSelectionLocked
-			? FLinearColor(1.0f, 0.62f, 0.0f, 0.6f)
-			: FLinearColor(0.9f, 0.45f, 0.0f, 0.4f);
-		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? ActiveColor : FLinearColor::Transparent);
-		if (LadderRowTexts.IsValidIndex(Index) && LadderRowTexts[Index].IsValid())
+		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? GetActiveCellColor() : GetIdleCellColor());
+		LadderRowBorders[Index]->SetDesiredSizeScale(bIsActive && bCursorLocked ? FVector2D(1.0f, 1.08f) : FVector2D(1.0f, 1.0f));
+
+		if (LadderRowStepTexts.IsValidIndex(Index) && LadderRowStepTexts[Index].IsValid())
 		{
-			LadderRowTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor::White) : FSlateColor::UseForeground());
+			LadderRowStepTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor(0.10f, 0.10f, 0.12f)) : FSlateColor(FLinearColor(0.80f, 0.82f, 0.86f)));
+		}
+
+		if (LadderRowValueTexts.IsValidIndex(Index) && LadderRowValueTexts[Index].IsValid())
+		{
+			LadderRowValueTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor(0.02f, 0.02f, 0.03f)) : FSlateColor(FLinearColor(0.85f, 0.87f, 0.92f, 0.0f)));
 		}
 	}
 }

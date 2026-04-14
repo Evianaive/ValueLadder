@@ -60,6 +60,7 @@ void FValueLadderModule::ShutdownModule()
 
 	if (FSlateApplication::IsInitialized() && LadderInputProcessor.IsValid())
 	{
+		StaticCastSharedPtr<FValueLadderInputProcessor>(LadderInputProcessor)->CancelActiveGesture();
 		FSlateApplication::Get().UnregisterInputPreProcessor(LadderInputProcessor.ToSharedRef());
 		LadderInputProcessor.Reset();
 		UE_LOG(LogValueLadder, Display, TEXT("[Module] Input preprocessor unregistered."));

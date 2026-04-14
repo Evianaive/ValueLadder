@@ -23,17 +23,17 @@ bool FValueLadderDeltaMathTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FValueLadderSelectionColumnGateTest,
-	"ValueLadder.Math.SelectionColumnGate",
+	FValueLadderVerticalSelectionMathTest,
+	"ValueLadder.Math.VerticalSelection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FValueLadderSelectionColumnGateTest::RunTest(const FString& Parameters)
+bool FValueLadderVerticalSelectionMathTest::RunTest(const FString& Parameters)
 {
-	TestTrue(TEXT("Offset inside selection column should report unlocked"), ValueLadder::Math::IsInsideSelectionColumn(40.0, 100.0));
-	TestFalse(TEXT("Offset outside selection column should report locked"), ValueLadder::Math::IsInsideSelectionColumn(60.0, 100.0));
-	TestEqual(TEXT("Movement inside selection column should not accumulate"), ValueLadder::Math::ApplySelectionColumnGate(40.0, 100.0), 0.0);
-	TestEqual(TEXT("Movement should begin accumulating after leaving the positive edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(80.0, 100.0), 30.0);
-	TestEqual(TEXT("Movement should begin accumulating after leaving the negative edge of the column"), ValueLadder::Math::ApplySelectionColumnGate(-80.0, 100.0), -30.0);
+	TestEqual(TEXT("No vertical movement should keep the ladder index stable"), ValueLadder::Math::ResolveLadderIndexFromVerticalOffset(2, 0.0, 20.0, 0, 5), 2);
+	TestEqual(TEXT("Dragging down by one row should advance to the next ladder index"), ValueLadder::Math::ResolveLadderIndexFromVerticalOffset(2, 20.0, 20.0, 0, 5), 3);
+	TestEqual(TEXT("Dragging up by one row should move to the previous ladder index"), ValueLadder::Math::ResolveLadderIndexFromVerticalOffset(2, -20.0, 20.0, 0, 5), 1);
+	TestEqual(TEXT("Vertical selection should clamp to the minimum ladder index"), ValueLadder::Math::ResolveLadderIndexFromVerticalOffset(1, -80.0, 20.0, 0, 5), 0);
+	TestEqual(TEXT("Vertical selection should clamp to the maximum ladder index"), ValueLadder::Math::ResolveLadderIndexFromVerticalOffset(4, 80.0, 20.0, 0, 5), 5);
 	TestEqual(TEXT("Positive remainder within a tick should be tracked"), ValueLadder::Math::ComputeTickRemainderPx(29.0, 12.0), 5.0);
 	TestEqual(TEXT("Negative remainder within a tick should be tracked"), ValueLadder::Math::ComputeTickRemainderPx(-29.0, 12.0), -5.0);
 	TestEqual(TEXT("Tick progress should reflect partial travel"), ValueLadder::Math::ComputeTickProgress(29.0, 12.0), 5.0 / 12.0);

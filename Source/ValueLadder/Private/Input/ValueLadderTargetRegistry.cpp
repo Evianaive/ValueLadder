@@ -121,7 +121,6 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 {
 	FScopeLock Lock(&RegistryMutex);
 	Compact_NoLock();
-	UE_LOG(LogValueLadder, Verbose, TEXT("[Registry] Resolve request widgetPathDepth=%d registeredTargets=%d"), WidgetPath.Widgets.Num(), RegisteredTargets.Num());
 
 	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
 	{
@@ -135,78 +134,27 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 				continue;
 			}
 
-		if (RegisteredWidget.Get() == &CandidateWidget.Get())
+			if (RegisteredWidget.Get() == &CandidateWidget.Get())
 			{
 				OutTarget = Entry.Value.Target;
-				
-				// Enhanced validation logging for debugging Int type issues
 				const bool bPropertyHandleValid = OutTarget.PropertyHandle.IsValid();
 				const bool bIsValidHandle = bPropertyHandleValid && OutTarget.PropertyHandle->IsValidHandle();
-				const FString PropertyDisplayName = bPropertyHandleValid ? OutTarget.PropertyHandle->GetPropertyDisplayName().ToString() : TEXT("<null>");
-				
-				UE_LOG(
-					LogValueLadder,
-					Display,
-					TEXT("[Registry] Resolve widget match found. handle=%llu pathIndex=%d widget=%p type=%s propertyHandleValid=%s isValidHandle=%s propertyName='%s'"),
-					static_cast<uint64>(Entry.Key),
-					WidgetPathIndex,
-					static_cast<const void*>(&CandidateWidget.Get()),
-					ToNumericTypeString(OutTarget.NumericType),
-					bPropertyHandleValid ? TEXT("true") : TEXT("false"),
-					bIsValidHandle ? TEXT("true") : TEXT("false"),
-					*PropertyDisplayName);
-				
+
 				if (!bIsValidHandle)
 				{
 					UE_LOG(
 						LogValueLadder,
-						Warning,
-						TEXT("[Registry] Resolve matched widget but IsValidHandle() returned false: handle=%llu pathIndex=%d %s %s"),
+						Verbose,
+						TEXT("[Registry] Resolve matched widget with invalid property handle. handle=%llu pathIndex=%d %s %s"),
 						static_cast<uint64>(Entry.Key),
 						WidgetPathIndex,
 						*DescribeWidget(RegisteredWidget),
 						*DescribeTarget(OutTarget));
 				}
 
-				UE_LOG(
-					LogValueLadder,
-					Display,
-					TEXT("[Registry] Resolve hit handle=%llu pathIndex=%d %s %s"),
-					static_cast<uint64>(Entry.Key),
-					WidgetPathIndex,
-					*DescribeWidget(RegisteredWidget),
-					*DescribeTarget(OutTarget));
 				return bIsValidHandle;
 			}
 		}
-	}
-
-	UE_LOG(LogValueLadder, Warning, TEXT("[Registry] Resolve miss: widgetPathDepth=%d registeredTargets=%d"), WidgetPath.Widgets.Num(), RegisteredTargets.Num());
-
-	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
-	{
-		const TSharedPtr<SWidget> CandidateWidget = WidgetPath.Widgets[WidgetPathIndex].Widget;
-		UE_LOG(
-			LogValueLadder,
-			Warning,
-			TEXT("[Registry] Resolve miss path[%d] %s"),
-			WidgetPathIndex,
-			*DescribeWidget(CandidateWidget));
-	}
-
-	int32 RegistryIndex = 0;
-	for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
-	{
-		const TSharedPtr<SWidget> RegisteredWidget = Entry.Value.Widget.Pin();
-		UE_LOG(
-			LogValueLadder,
-			Warning,
-			TEXT("[Registry] Resolve miss registry[%d] handle=%llu %s %s"),
-			RegistryIndex,
-			static_cast<uint64>(Entry.Key),
-			*DescribeWidget(RegisteredWidget),
-			*DescribeTarget(Entry.Value.Target));
-		++RegistryIndex;
 	}
 
 	return false;
