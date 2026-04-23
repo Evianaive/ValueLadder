@@ -7,12 +7,59 @@
 #include "ValueLadderTypes.h"
 #include "ValueLadderSettings.generated.h"
 
+USTRUCT()
+struct FValueLadderUnitOverride
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
+	FName Unit = NAME_None;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
+	TArray<float> FloatLadders;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder", meta = (ClampMin = "0"))
+	int32 DefaultFloatLadderIndex = 0;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder")
+	TArray<int32> IntLadders;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder", meta = (ClampMin = "0"))
+	int32 DefaultIntLadderIndex = 0;
+};
+
+USTRUCT()
+struct FValueLadderSemanticOverride
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics")
+	EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics")
+	FName Unit = NAME_None;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics")
+	TArray<float> FloatLadders;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics", meta = (ClampMin = "0"))
+	int32 DefaultFloatLadderIndex = 0;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics")
+	TArray<int32> IntLadders;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics", meta = (ClampMin = "0"))
+	int32 DefaultIntLadderIndex = 0;
+};
+
 UCLASS(Config = EditorPerProjectUserSettings, DefaultConfig)
 class VALUELADDER_API UValueLadderSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
 
 public:
+	UValueLadderSettings();
+
 	virtual FName GetContainerName() const override { return TEXT("Editor"); }
 	virtual FName GetCategoryName() const override { return TEXT("Plugins"); }
 	virtual FName GetSectionName() const override { return TEXT("Value Ladder"); }
@@ -41,6 +88,12 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Ladder", meta = (ClampMin = "0"))
 	int32 DefaultIntLadderIndex = 0;
 
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Units")
+	TArray<FValueLadderUnitOverride> UnitOverrides;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Ladder|Semantics")
+	TArray<FValueLadderSemanticOverride> SemanticOverrides;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Input", meta = (ClampMin = "0.0001", UIMin = "0.0001"))
 	float ShiftStepMultiplier = 10.0f;
 
@@ -53,7 +106,7 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category = "Types")
 	bool bEnableDouble = true;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Types")
+	UPROPERTY(EditAnywhere, Config, Category = "Types", meta = (DisplayName = "Integers"))
 	bool bEnableInt32 = true;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Types")
@@ -65,8 +118,8 @@ public:
 	double ResolveStepMultiplier(bool bShiftDown, bool bCtrlDown) const;
 	double ComputeDeltaFromPixelOffset(double PixelOffset, double LadderStep, bool bShiftDown, bool bCtrlDown) const;
 	bool SupportsType(EValueLadderNumericType NumericType) const;
-	int32 GetDefaultLadderIndex(EValueLadderNumericType NumericType) const;
-	int32 ClampLadderIndex(EValueLadderNumericType NumericType, int32 Index) const;
-	double GetLadderStep(EValueLadderNumericType NumericType, int32 Index) const;
-	void BuildLadderDisplayValues(EValueLadderNumericType NumericType, TArray<FText>& OutValues) const;
+	int32 GetDefaultLadderIndex(EValueLadderNumericType NumericType, FName UnitKey = NAME_None, EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar) const;
+	int32 ClampLadderIndex(EValueLadderNumericType NumericType, int32 Index, FName UnitKey = NAME_None, EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar) const;
+	double GetLadderStep(EValueLadderNumericType NumericType, int32 Index, FName UnitKey = NAME_None, EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar) const;
+	void BuildLadderDisplayValues(EValueLadderNumericType NumericType, TArray<FText>& OutValues, FName UnitKey = NAME_None, EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar) const;
 };
