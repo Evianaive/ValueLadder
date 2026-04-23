@@ -54,6 +54,21 @@ namespace
 		}
 	}
 
+	EValueLadderSemanticRole ToSemanticRole(const FValueLadderPropertyTarget::ETransformField Field)
+	{
+		switch (Field)
+		{
+		case FValueLadderPropertyTarget::ETransformField::Location:
+			return EValueLadderSemanticRole::Translation;
+		case FValueLadderPropertyTarget::ETransformField::Rotation:
+			return EValueLadderSemanticRole::Rotation;
+		case FValueLadderPropertyTarget::ETransformField::Scale:
+			return EValueLadderSemanticRole::Scale;
+		default:
+			return EValueLadderSemanticRole::GenericScalar;
+		}
+	}
+
 bool TryMapRowTagToField(const FName& Tag, FValueLadderPropertyTarget::ETransformField& OutField)
 	{
 		if (Tag == VLT_NAME_Location || Tag == TEXT("DetailRowItem.Location"))
@@ -77,9 +92,16 @@ bool TryMapRowTagToField(const FName& Tag, FValueLadderPropertyTarget::ETransfor
 		return false;
 	}
 
+	constexpr const TCHAR* DetailRowTagPrefix = TEXT("DetailRowItem.");
+
 	bool IsCachedFieldValid(const FComponentTransformDetailsBridge::FCachedTransformField& CachedField)
 	{
 		return CachedField.PropertyHandle.IsValid() && CachedField.PropertyHandle->IsValidHandle();
+	}
+
+	bool IsCachedScalarRowValid(const FComponentTransformDetailsBridge::FCachedScalarRow& CachedRow)
+	{
+		return CachedRow.PropertyHandle.IsValid() && CachedRow.PropertyHandle->IsValidHandle();
 	}
 
 	FComponentTransformDetailsBridge::FCachedTransformField* GetMutableCachedField(
@@ -152,73 +174,60 @@ void FComponentTransformDetailsBridge::Unregister(FPropertyEditorModule& Propert
 bool FComponentTransformDetailsBridge::ResolveTargetFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget)
 {
 	CompactStaleEntries();
+	OutTarget = FValueLadderPropertyTarget();
 
 	FValueLadderPropertyTarget::ETransformField Field = FValueLadderPropertyTarget::ETransformField::Location;
-	if (!TryResolveFieldFromWidgetPath(WidgetPath, Field))
+	if (TryResolveFieldFromWidgetPath(WidgetPath, Field))
 	{
-		return false;
-	}
-
-	FName ComponentName;
-	FString ContainerType;
-	int32 DisplayIndex = INDEX_NONE;
-	int32 ComponentIndex = INDEX_NONE;
-	if (!TryResolveComponentFromWidgetPath(WidgetPath, Field, ComponentName, ContainerType, DisplayIndex, ComponentIndex))
-	{
-		return false;
-	}
-
-	const SWidget* const DetailsViewWidgetKey = FindDetailsViewWidgetKey(WidgetPath);
-	if (DetailsViewWidgetKey == nullptr)
-	{
-		return false;
-	}
-
-	FDetailsViewTransformCache* const DetailsViewCache = CachedFieldsByDetailsView.Find(DetailsViewWidgetKey);
-	if (DetailsViewCache == nullptr)
-	{
-		return false;
-	}
-
-	const TSharedPtr<SWidget> CachedDetailsViewWidget = DetailsViewCache->DetailsViewWidget.Pin();
-	if (!CachedDetailsViewWidget.IsValid() || CachedDetailsViewWidget.Get() != DetailsViewWidgetKey)
-	{
-		CachedFieldsByDetailsView.Remove(DetailsViewWidgetKey);
-		return false;
-	}
-
-	FCachedTransformField* const CachedField = GetMutableCachedField(*DetailsViewCache, Field);
-	if (CachedField == nullptr || !IsCachedFieldValid(*CachedField))
-	{
-		if (CachedField != nullptr)
+		FName ComponentName;
+		FString ContainerType;
+		int32 DisplayIndex = INDEX_NONE;
+		int32 ComponentIndex = INDEX_NONE;
+		if (TryResolveComponentFromWidgetPath(WidgetPath, Field, ComponentName, ContainerType, DisplayIndex, ComponentIndex))
 		{
-			*CachedField = FCachedTransformField();
+			const SWidget* const DetailsViewWidgetKey = FindDetailsViewWidgetKey(WidgetPath);
+			if (DetailsViewWidgetKey != nullptr)
+			{
+				FDetailsViewTransformCache* const DetailsViewCache = CachedFieldsByDetailsView.Find(DetailsViewWidgetKey);
+				if (DetailsViewCache != nullptr)
+				{
+					const TSharedPtr<SWidget> CachedDetailsViewWidget = DetailsViewCache->DetailsViewWidget.Pin();
+					if (!CachedDetailsViewWidget.IsValid() || CachedDetailsViewWidget.Get() != DetailsViewWidgetKey)
+					{
+						CachedFieldsByDetailsView.Remove(DetailsViewWidgetKey);
+					}
+					else
+					{
+						FCachedTransformField* const CachedField = GetMutableCachedField(*DetailsViewCache, Field);
+						if (CachedField != nullptr && IsCachedFieldValid(*CachedField))
+						{
+							const TSharedPtr<IPropertyHandle> LeafHandle = FindChildHandleByPropertyName(CachedField->PropertyHandle.ToSharedRef(), ComponentName);
+							if (LeafHandle.IsValid() && LeafHandle->IsValidHandle())
+							{
+								EValueLadderNumericType NumericType = CachedField->NumericType;
+								if (ResolveNumericType(LeafHandle.ToSharedRef(), NumericType))
+								{
+									OutTarget.PropertyHandle = LeafHandle;
+									OutTarget.NumericType = NumericType;
+									OutTarget.SemanticRole = ToSemanticRole(Field);
+									OutTarget.bIsVectorComponent = true;
+									OutTarget.TransformField = Field;
+									OutTarget.ComponentName = ComponentName;
+									return true;
+								}
+							}
+							else
+							{
+								*CachedField = FCachedTransformField();
+							}
+						}
+					}
+				}
+			}
 		}
-
-		return false;
 	}
 
-	const TSharedPtr<IPropertyHandle> LeafHandle = FindChildHandleByPropertyName(CachedField->PropertyHandle.ToSharedRef(), ComponentName);
-	if (!LeafHandle.IsValid() || !LeafHandle->IsValidHandle())
-	{
-		*CachedField = FCachedTransformField();
-		return false;
-	}
-
-	EValueLadderNumericType NumericType = CachedField->NumericType;
-	if (!ResolveNumericType(LeafHandle.ToSharedRef(), NumericType))
-	{
-		return false;
-	}
-
-	OutTarget = FValueLadderPropertyTarget();
-	OutTarget.PropertyHandle = LeafHandle;
-	OutTarget.NumericType = NumericType;
-	OutTarget.bIsVectorComponent = true;
-	OutTarget.TransformField = Field;
-	OutTarget.ComponentName = ComponentName;
-
-	return true;
+	return TryResolveScalarNumericFromWidgetPath(WidgetPath, OutTarget);
 }
 
 void FComponentTransformDetailsBridge::HandleGenerateGlobalRowExtension(
@@ -260,6 +269,10 @@ void FComponentTransformDetailsBridge::HandleGenerateGlobalRowExtension(
 	else if (PropertyName == USceneComponent::GetRelativeScale3DPropertyName())
 	{
 		CacheTransformField(DetailsView.ToSharedRef(), FValueLadderPropertyTarget::ETransformField::Scale, InArgs.PropertyHandle.ToSharedRef());
+	}
+	else
+	{
+		CacheScalarNumericRow(DetailsView.ToSharedRef(), InArgs.PropertyHandle.ToSharedRef());
 	}
 }
 
@@ -305,6 +318,61 @@ void FComponentTransformDetailsBridge::CacheTransformField(
 	UE_LOG(LogValueLadder, Display, TEXT("[TransformBridge] Cached %s property handle detailsView=%p identifier=%s displayName='%s' type=%s"), ToTransformFieldString(Field), DetailsViewWidgetKey, *DetailsView->GetIdentifier().ToString(), *PropertyHandle->GetPropertyDisplayName().ToString(), ToNumericTypeString(NumericType));
 }
 
+void FComponentTransformDetailsBridge::CacheScalarNumericRow(
+	const TSharedRef<IDetailsView>& DetailsView,
+	const TSharedRef<IPropertyHandle>& PropertyHandle)
+{
+	CompactStaleEntries();
+
+	EValueLadderNumericType NumericType = EValueLadderNumericType::Float;
+	if (!ResolveNumericType(PropertyHandle, NumericType))
+	{
+		return;
+	}
+
+	const SWidget* const DetailsViewWidgetKey = GetDetailsViewWidgetKey(DetailsView);
+	if (DetailsViewWidgetKey == nullptr)
+	{
+		return;
+	}
+
+	FDetailsViewTransformCache& DetailsViewCache = CachedFieldsByDetailsView.FindOrAdd(DetailsViewWidgetKey);
+	DetailsViewCache.DetailsViewWidget = StaticCastSharedRef<SWidget>(DetailsView);
+
+	const FProperty* Property = PropertyHandle->GetProperty();
+	if (Property == nullptr)
+	{
+		return;
+	}
+
+	const FString PropertyPath = PropertyHandle->GeneratePathToProperty();
+	FCachedScalarRow* CachedRow = DetailsViewCache.ScalarRows.FindByPredicate(
+		[&PropertyPath](const FCachedScalarRow& Row)
+		{
+			return Row.PropertyPath == PropertyPath;
+		});
+	if (CachedRow == nullptr)
+	{
+		CachedRow = &DetailsViewCache.ScalarRows.AddDefaulted_GetRef();
+	}
+
+	CachedRow->PropertyHandle = PropertyHandle;
+	CachedRow->NumericType = NumericType;
+	CachedRow->SemanticRole = GetDefaultSemanticRole(NumericType);
+	CachedRow->PropertyName = Property->GetFName();
+	CachedRow->PropertyDisplayName = PropertyHandle->GetPropertyDisplayName().ToString();
+	CachedRow->PropertyPath = PropertyPath;
+	UE_LOG(
+		LogValueLadder,
+		Display,
+		TEXT("[TransformBridge] Cached scalar row detailsView=%p property=%s displayName='%s' path=%s type=%s"),
+		DetailsViewWidgetKey,
+		*CachedRow->PropertyName.ToString(),
+		*CachedRow->PropertyDisplayName,
+		*CachedRow->PropertyPath,
+		ToNumericTypeString(CachedRow->NumericType));
+}
+
 void FComponentTransformDetailsBridge::CompactStaleEntries()
 {
 	int32 RemovedCount = 0;
@@ -316,7 +384,14 @@ void FComponentTransformDetailsBridge::CompactStaleEntries()
 			UE_LOG(LogValueLadder, Verbose, TEXT("[TransformBridge] Compact removed stale details-view cache entry key=%p weakValid=%s pointerMatch=%s"), It.Key(), DetailsViewWidget.IsValid() ? TEXT("true") : TEXT("false"), (DetailsViewWidget.IsValid() && DetailsViewWidget.Get() == It.Key()) ? TEXT("true") : TEXT("false"));
 			It.RemoveCurrent();
 			++RemovedCount;
+			continue;
 		}
+
+		It.Value().ScalarRows.RemoveAll(
+			[](const FCachedScalarRow& Row)
+			{
+				return !IsCachedScalarRowValid(Row);
+			});
 	}
 
 	if (RemovedCount > 0)
@@ -335,6 +410,11 @@ bool FComponentTransformDetailsBridge::ResolveNumericType(
 		return false;
 	}
 
+	if (Property->HasMetaData(TEXT("Bitmask")) || Property->IsA<FEnumProperty>())
+	{
+		return false;
+	}
+
 	if (Property->IsA<FFloatProperty>())
 	{
 		OutType = EValueLadderNumericType::Float;
@@ -347,9 +427,57 @@ bool FComponentTransformDetailsBridge::ResolveNumericType(
 		return true;
 	}
 
+	if (Property->IsA<FByteProperty>())
+	{
+		const FByteProperty* ByteProperty = CastField<const FByteProperty>(Property);
+		if (ByteProperty == nullptr || ByteProperty->Enum != nullptr)
+		{
+			return false;
+		}
+
+		OutType = EValueLadderNumericType::UInt8;
+		return true;
+	}
+
+	if (Property->IsA<FInt8Property>())
+	{
+		OutType = EValueLadderNumericType::Int8;
+		return true;
+	}
+
+	if (Property->IsA<FInt16Property>())
+	{
+		OutType = EValueLadderNumericType::Int16;
+		return true;
+	}
+
 	if (Property->IsA<FIntProperty>())
 	{
 		OutType = EValueLadderNumericType::Int32;
+		return true;
+	}
+
+	if (Property->IsA<FInt64Property>())
+	{
+		OutType = EValueLadderNumericType::Int64;
+		return true;
+	}
+
+	if (Property->IsA<FUInt16Property>())
+	{
+		OutType = EValueLadderNumericType::UInt16;
+		return true;
+	}
+
+	if (Property->IsA<FUInt32Property>())
+	{
+		OutType = EValueLadderNumericType::UInt32;
+		return true;
+	}
+
+	if (Property->IsA<FUInt64Property>())
+	{
+		OutType = EValueLadderNumericType::UInt64;
 		return true;
 	}
 
@@ -420,6 +548,176 @@ const SWidget* FComponentTransformDetailsBridge::FindDetailsViewWidgetKey(const 
 	}
 
 	return nullptr;
+}
+
+bool FComponentTransformDetailsBridge::TryResolveScalarNumericFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget)
+{
+	const SWidget* const DetailsViewWidgetKey = FindDetailsViewWidgetKey(WidgetPath);
+	if (DetailsViewWidgetKey == nullptr)
+	{
+		return false;
+	}
+
+	FDetailsViewTransformCache* const DetailsViewCache = CachedFieldsByDetailsView.Find(DetailsViewWidgetKey);
+	if (DetailsViewCache == nullptr)
+	{
+		return false;
+	}
+
+	const TSharedPtr<SWidget> CachedDetailsViewWidget = DetailsViewCache->DetailsViewWidget.Pin();
+	if (!CachedDetailsViewWidget.IsValid() || CachedDetailsViewWidget.Get() != DetailsViewWidgetKey)
+	{
+		CachedFieldsByDetailsView.Remove(DetailsViewWidgetKey);
+		return false;
+	}
+
+	FString RowToken;
+	if (!TryExtractDetailRowToken(WidgetPath, RowToken))
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[TransformBridge] Scalar resolve missed: no DetailRowItem tag on widget path for detailsView=%p depth=%d"), DetailsViewWidgetKey, WidgetPath.Widgets.Num());
+		return false;
+	}
+
+	const FString NormalizedRowToken = NormalizeRowToken(RowToken);
+	if (NormalizedRowToken.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<const FCachedScalarRow*> PropertyNameMatches;
+	TArray<const FCachedScalarRow*> DisplayNameMatches;
+	TArray<const FCachedScalarRow*> PropertyPathMatches;
+	for (const FCachedScalarRow& CachedRow : DetailsViewCache->ScalarRows)
+	{
+		if (!IsCachedScalarRowValid(CachedRow))
+		{
+			continue;
+		}
+
+		if (NormalizeRowToken(CachedRow.PropertyName.ToString()) == NormalizedRowToken)
+		{
+			PropertyNameMatches.Add(&CachedRow);
+		}
+
+		if (NormalizeRowToken(CachedRow.PropertyDisplayName) == NormalizedRowToken)
+		{
+			DisplayNameMatches.Add(&CachedRow);
+		}
+
+		const int32 LastDotIndex = CachedRow.PropertyPath.Find(TEXT("."), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+		const FString PropertyPathLeaf = LastDotIndex != INDEX_NONE ? CachedRow.PropertyPath.Mid(LastDotIndex + 1) : CachedRow.PropertyPath;
+		if (NormalizeRowToken(PropertyPathLeaf) == NormalizedRowToken)
+		{
+			PropertyPathMatches.Add(&CachedRow);
+		}
+	}
+
+	const FCachedScalarRow* ResolvedRow = nullptr;
+	if (PropertyNameMatches.Num() == 1)
+	{
+		ResolvedRow = PropertyNameMatches[0];
+	}
+	else if (PropertyNameMatches.Num() > 1)
+	{
+		return false;
+	}
+	else if (DisplayNameMatches.Num() == 1)
+	{
+		ResolvedRow = DisplayNameMatches[0];
+	}
+	else if (DisplayNameMatches.Num() > 1)
+	{
+		return false;
+	}
+	else if (PropertyPathMatches.Num() == 1)
+	{
+		ResolvedRow = PropertyPathMatches[0];
+	}
+	else if (PropertyPathMatches.Num() > 1)
+	{
+		return false;
+	}
+
+	if (ResolvedRow == nullptr)
+	{
+		UE_LOG(
+			LogValueLadder,
+			Display,
+			TEXT("[TransformBridge] Scalar resolve missed: detailsView=%p rowToken='%s' normalized='%s' propertyMatches=%d displayMatches=%d pathMatches=%d cachedRows=%d"),
+			DetailsViewWidgetKey,
+			*RowToken,
+			*NormalizedRowToken,
+			PropertyNameMatches.Num(),
+			DisplayNameMatches.Num(),
+			PropertyPathMatches.Num(),
+			DetailsViewCache->ScalarRows.Num());
+		return false;
+	}
+
+	UE_LOG(
+		LogValueLadder,
+		Display,
+		TEXT("[TransformBridge] Scalar resolve hit: detailsView=%p rowToken='%s' property=%s displayName='%s' type=%s"),
+		DetailsViewWidgetKey,
+		*RowToken,
+		*ResolvedRow->PropertyName.ToString(),
+		*ResolvedRow->PropertyDisplayName,
+		ToNumericTypeString(ResolvedRow->NumericType));
+
+	OutTarget = FValueLadderPropertyTarget();
+	OutTarget.PropertyHandle = ResolvedRow->PropertyHandle;
+	OutTarget.NumericType = ResolvedRow->NumericType;
+	OutTarget.SemanticRole = ResolvedRow->SemanticRole;
+	return true;
+}
+
+bool FComponentTransformDetailsBridge::TryExtractDetailRowToken(const FWidgetPath& WidgetPath, FString& OutRowToken)
+{
+	for (int32 WidgetIndex = WidgetPath.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
+	{
+		const TSharedRef<SWidget>& Widget = WidgetPath.Widgets[WidgetIndex].Widget;
+		const auto TryConsumeTag = [&OutRowToken](const FName& Tag)
+		{
+			const FString TagString = Tag.ToString();
+			if (!TagString.StartsWith(DetailRowTagPrefix))
+			{
+				return false;
+			}
+
+			OutRowToken = TagString.Mid(FCString::Strlen(DetailRowTagPrefix));
+			return !OutRowToken.IsEmpty();
+		};
+
+		if (!Widget->GetTag().IsNone() && TryConsumeTag(Widget->GetTag()))
+		{
+			return true;
+		}
+
+		for (const TSharedRef<FTagMetaData>& TagMetaData : Widget->GetAllMetaData<FTagMetaData>())
+		{
+			if (TryConsumeTag(TagMetaData->Tag))
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+FString FComponentTransformDetailsBridge::NormalizeRowToken(const FString& InToken)
+{
+	FString Normalized;
+	Normalized.Reserve(InToken.Len());
+	for (const TCHAR Character : InToken)
+	{
+		if (FChar::IsAlnum(Character))
+		{
+			Normalized.AppendChar(FChar::ToLower(Character));
+		}
+	}
+
+	return Normalized;
 }
 
 bool FComponentTransformDetailsBridge::TryResolveFieldFromWidgetPath(

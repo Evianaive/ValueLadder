@@ -2,23 +2,14 @@
 
 #include "ValueLadderLog.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Types/ISlateMetaData.h"
 #include "Widgets/SWidget.h"
 
 namespace
 {
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
-		switch (NumericType)
-		{
-		case EValueLadderNumericType::Float:
-			return TEXT("Float");
-		case EValueLadderNumericType::Double:
-			return TEXT("Double");
-		case EValueLadderNumericType::Int32:
-			return TEXT("Int32");
-		default:
-			return TEXT("Unknown");
-		}
+		return ValueLadder::ToNumericTypeString(NumericType);
 	}
 
 	const TCHAR* ToTargetKindString(const FValueLadderPropertyTarget::ETargetKind Kind)
@@ -47,6 +38,100 @@ namespace
 		default:
 			return TEXT("Unknown");
 		}
+	}
+
+	constexpr const TCHAR* ValueLadderHandleTagPrefix = TEXT("ValueLadder.Handle.");
+	constexpr const TCHAR* DetailRowTagPrefix = TEXT("DetailRowItem.");
+
+	bool TryParseHandleTag(const FName Tag, FValueLadderTargetHandle& OutHandle)
+	{
+		const FString TagString = Tag.ToString();
+		if (!TagString.StartsWith(ValueLadderHandleTagPrefix))
+		{
+			return false;
+		}
+
+		const TCHAR* const NumberStart = *TagString + FCString::Strlen(ValueLadderHandleTagPrefix);
+		TCHAR* EndPtr = nullptr;
+		const uint64 ParsedHandle = FCString::Strtoui64(NumberStart, &EndPtr, 10);
+		if (EndPtr == nullptr || *EndPtr != TEXT('\0'))
+		{
+			return false;
+		}
+
+		OutHandle = ParsedHandle;
+		return true;
+	}
+
+	bool TryExtractDetailRowToken(const FWidgetPath& WidgetPath, FString& OutToken)
+	{
+		for (int32 WidgetIndex = WidgetPath.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
+		{
+			const TSharedRef<SWidget>& Widget = WidgetPath.Widgets[WidgetIndex].Widget;
+			const auto TryConsumeTag = [&OutToken](const FName& Tag)
+			{
+				const FString TagString = Tag.ToString();
+				if (!TagString.StartsWith(DetailRowTagPrefix))
+				{
+					return false;
+				}
+
+				OutToken = TagString.Mid(FCString::Strlen(DetailRowTagPrefix));
+				return !OutToken.IsEmpty();
+			};
+
+			if (!Widget->GetTag().IsNone() && TryConsumeTag(Widget->GetTag()))
+			{
+				return true;
+			}
+
+			for (const TSharedRef<FTagMetaData>& TagMetaData : Widget->GetAllMetaData<FTagMetaData>())
+			{
+				if (TryConsumeTag(TagMetaData->Tag))
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	FString NormalizeRowToken(const FString& InToken)
+	{
+		FString Normalized;
+		Normalized.Reserve(InToken.Len());
+		for (const TCHAR Character : InToken)
+		{
+			if (FChar::IsAlnum(Character))
+			{
+				Normalized.AppendChar(FChar::ToLower(Character));
+			}
+		}
+
+		return Normalized;
+	}
+
+	bool AreEquivalentPropertyHandles(const TSharedPtr<IPropertyHandle>& LeftHandle, const TSharedPtr<IPropertyHandle>& RightHandle)
+	{
+		if (!LeftHandle.IsValid() || !RightHandle.IsValid() || !LeftHandle->IsValidHandle() || !RightHandle->IsValidHandle())
+		{
+			return false;
+		}
+
+		if (LeftHandle == RightHandle)
+		{
+			return true;
+		}
+
+		const FProperty* const LeftProperty = LeftHandle->GetProperty();
+		const FProperty* const RightProperty = RightHandle->GetProperty();
+		if (LeftProperty == nullptr || RightProperty == nullptr || LeftProperty != RightProperty)
+		{
+			return false;
+		}
+
+		return LeftHandle->GeneratePathToProperty() == RightHandle->GeneratePathToProperty();
 	}
 
 	FString DescribeWidget(const TSharedPtr<SWidget>& Widget)
@@ -121,6 +206,10 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 {
 	FScopeLock Lock(&RegistryMutex);
 	Compact_NoLock();
+	OutTarget = FValueLadderPropertyTarget();
+
+	int32 WidgetMatchCount = 0;
+	int32 InvalidHandleMatchCount = 0;
 
 	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
 	{
@@ -136,12 +225,14 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 
 			if (RegisteredWidget.Get() == &CandidateWidget.Get())
 			{
+				++WidgetMatchCount;
 				OutTarget = Entry.Value.Target;
 				const bool bPropertyHandleValid = OutTarget.PropertyHandle.IsValid();
 				const bool bIsValidHandle = bPropertyHandleValid && OutTarget.PropertyHandle->IsValidHandle();
 
 				if (!bIsValidHandle)
 				{
+					++InvalidHandleMatchCount;
 					UE_LOG(
 						LogValueLadder,
 						Verbose,
@@ -150,11 +241,166 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 						WidgetPathIndex,
 						*DescribeWidget(RegisteredWidget),
 						*DescribeTarget(OutTarget));
+					continue;
 				}
 
-				return bIsValidHandle;
+				return true;
 			}
 		}
+	}
+
+	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
+	{
+		const TSharedRef<SWidget>& CandidateWidget = WidgetPath.Widgets[WidgetPathIndex].Widget;
+		for (const TSharedRef<FTagMetaData>& TagMetaData : CandidateWidget->GetAllMetaData<FTagMetaData>())
+		{
+			FValueLadderTargetHandle TaggedHandle = 0;
+			if (!TryParseHandleTag(TagMetaData->Tag, TaggedHandle))
+			{
+				continue;
+			}
+
+			const FRegisteredTarget* TaggedTarget = RegisteredTargets.Find(TaggedHandle);
+			if (TaggedTarget == nullptr)
+			{
+				continue;
+			}
+
+			OutTarget = TaggedTarget->Target;
+			const bool bPropertyHandleValid = OutTarget.PropertyHandle.IsValid();
+			const bool bIsValidHandle = bPropertyHandleValid && OutTarget.PropertyHandle->IsValidHandle();
+			if (!bIsValidHandle)
+			{
+				++InvalidHandleMatchCount;
+				UE_LOG(
+					LogValueLadder,
+					Verbose,
+					TEXT("[Registry] Resolve matched tagged widget with invalid property handle. handle=%llu pathIndex=%d tag=%s %s"),
+					static_cast<uint64>(TaggedHandle),
+					WidgetPathIndex,
+					*TagMetaData->Tag.ToString(),
+					*DescribeTarget(OutTarget));
+				continue;
+			}
+
+			UE_LOG(
+				LogValueLadder,
+				Verbose,
+				TEXT("[Registry] Resolve fell back to tagged widget handle=%llu pathIndex=%d tag=%s"),
+				static_cast<uint64>(TaggedHandle),
+				WidgetPathIndex,
+				*TagMetaData->Tag.ToString());
+			return true;
+		}
+	}
+
+	FString DetailRowToken;
+	if (TryExtractDetailRowToken(WidgetPath, DetailRowToken))
+	{
+		const FString NormalizedDetailRowToken = NormalizeRowToken(DetailRowToken);
+		const FRegisteredTarget* PropertyNameMatch = nullptr;
+		const FRegisteredTarget* DisplayNameMatch = nullptr;
+		bool bPropertyNameAmbiguous = false;
+		bool bDisplayNameAmbiguous = false;
+		for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+		{
+			const FRegisteredTarget& RegisteredTarget = Entry.Value;
+			if (!RegisteredTarget.Target.PropertyHandle.IsValid() || !RegisteredTarget.Target.PropertyHandle->IsValidHandle())
+			{
+				continue;
+			}
+
+			const FProperty* Property = RegisteredTarget.Target.PropertyHandle->GetProperty();
+			if (Property == nullptr)
+			{
+				continue;
+			}
+
+			if (NormalizeRowToken(Property->GetFName().ToString()) == NormalizedDetailRowToken)
+			{
+				if (PropertyNameMatch != nullptr
+					&& !AreEquivalentPropertyHandles(PropertyNameMatch->Target.PropertyHandle, RegisteredTarget.Target.PropertyHandle))
+				{
+					bPropertyNameAmbiguous = true;
+				}
+				PropertyNameMatch = &RegisteredTarget;
+			}
+
+			if (NormalizeRowToken(RegisteredTarget.Target.PropertyHandle->GetPropertyDisplayName().ToString()) == NormalizedDetailRowToken)
+			{
+				if (DisplayNameMatch != nullptr
+					&& !AreEquivalentPropertyHandles(DisplayNameMatch->Target.PropertyHandle, RegisteredTarget.Target.PropertyHandle))
+				{
+					bDisplayNameAmbiguous = true;
+				}
+				DisplayNameMatch = &RegisteredTarget;
+			}
+		}
+
+		if (PropertyNameMatch != nullptr && !bPropertyNameAmbiguous)
+		{
+			OutTarget = PropertyNameMatch->Target;
+			return true;
+		}
+
+		if (DisplayNameMatch != nullptr && !bDisplayNameAmbiguous)
+		{
+			OutTarget = DisplayNameMatch->Target;
+			return true;
+		}
+	}
+
+	if (InvalidHandleMatchCount > 0)
+	{
+		UE_LOG(
+			LogValueLadder,
+			Verbose,
+			TEXT("[Registry] Resolve failed after stale widget matches. pathDepth=%d widgetMatches=%d invalidHandleMatches=%d registeredTargets=%d"),
+			WidgetPath.Widgets.Num(),
+			WidgetMatchCount,
+			InvalidHandleMatchCount,
+			RegisteredTargets.Num());
+	}
+
+	OutTarget = FValueLadderPropertyTarget();
+
+	return false;
+}
+
+bool FValueLadderTargetRegistry::FindRegisteredWidgetForPropertyName(
+	const FName PropertyName,
+	TSharedPtr<SWidget>& OutWidget,
+	FValueLadderPropertyTarget& OutTarget)
+{
+	FScopeLock Lock(&RegistryMutex);
+	Compact_NoLock();
+
+	OutWidget.Reset();
+	OutTarget = FValueLadderPropertyTarget();
+
+	for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+	{
+		const TSharedPtr<SWidget> RegisteredWidget = Entry.Value.Widget.Pin();
+		if (!RegisteredWidget.IsValid())
+		{
+			continue;
+		}
+
+		const TSharedPtr<IPropertyHandle> PropertyHandle = Entry.Value.Target.PropertyHandle;
+		if (!PropertyHandle.IsValid() || !PropertyHandle->IsValidHandle())
+		{
+			continue;
+		}
+
+		const FProperty* Property = PropertyHandle->GetProperty();
+		if (Property == nullptr || Property->GetFName() != PropertyName)
+		{
+			continue;
+		}
+
+		OutWidget = RegisteredWidget;
+		OutTarget = Entry.Value.Target;
+		return true;
 	}
 
 	return false;
@@ -170,7 +416,9 @@ void FValueLadderTargetRegistry::Compact_NoLock()
 
 	for (auto It = RegisteredTargets.CreateIterator(); It; ++It)
 	{
-		const bool bWidgetValid = It.Value().Widget.IsValid();
+		const TSharedPtr<SWidget> RegisteredWidget = It.Value().Widget.Pin();
+		const bool bWidgetValid = RegisteredWidget.IsValid();
+
 		const bool bTargetValid = It.Value().Target.IsValid();
 		if (!bWidgetValid || !bTargetValid)
 		{

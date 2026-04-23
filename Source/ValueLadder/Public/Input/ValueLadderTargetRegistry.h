@@ -17,6 +17,7 @@ public:
 	FValueLadderTargetHandle RegisterTarget(const TSharedRef<SWidget>& Widget, const FValueLadderPropertyTarget& Target);
 	void UnregisterTarget(FValueLadderTargetHandle Handle);
 	bool ResolveTargetFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget);
+	bool FindRegisteredWidgetForPropertyName(const FName PropertyName, TSharedPtr<SWidget>& OutWidget, FValueLadderPropertyTarget& OutTarget);
 
 private:
 	struct FRegisteredTarget

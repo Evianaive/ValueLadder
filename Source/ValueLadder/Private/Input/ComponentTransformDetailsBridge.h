@@ -27,18 +27,29 @@ public:
 		EValueLadderNumericType NumericType = EValueLadderNumericType::Float;
 	};
 
+	struct FCachedScalarRow
+	{
+		TSharedPtr<IPropertyHandle> PropertyHandle;
+		EValueLadderNumericType NumericType = EValueLadderNumericType::Float;
+		EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar;
+		FName PropertyName = NAME_None;
+		FString PropertyDisplayName;
+		FString PropertyPath;
+	};
+
 	struct FDetailsViewTransformCache
 	{
 		TWeakPtr<SWidget> DetailsViewWidget;
 		FCachedTransformField Location;
 		FCachedTransformField Rotation;
 		FCachedTransformField Scale;
+		TArray<FCachedScalarRow> ScalarRows;
 	};
 
 private:
-
 	void HandleGenerateGlobalRowExtension(const FOnGenerateGlobalRowExtensionArgs& InArgs, TArray<FPropertyRowExtensionButton>& OutExtensions);
 	void CacheTransformField(const TSharedRef<IDetailsView>& DetailsView, FValueLadderPropertyTarget::ETransformField Field, const TSharedRef<IPropertyHandle>& PropertyHandle);
+	void CacheScalarNumericRow(const TSharedRef<IDetailsView>& DetailsView, const TSharedRef<IPropertyHandle>& PropertyHandle);
 	void CompactStaleEntries();
 
 	static bool ResolveNumericType(const TSharedRef<IPropertyHandle>& PropertyHandle, EValueLadderNumericType& OutType);
@@ -54,6 +65,9 @@ private:
 		FString& OutContainerType,
 		int32& OutDisplayIndex,
 		int32& OutComponentIndex);
+	bool TryResolveScalarNumericFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget);
+	static bool TryExtractDetailRowToken(const FWidgetPath& WidgetPath, FString& OutRowToken);
+	static FString NormalizeRowToken(const FString& InToken);
 
 	TMap<const SWidget*, FDetailsViewTransformCache> CachedFieldsByDetailsView;
 	FDelegateHandle RowExtensionDelegateHandle;
