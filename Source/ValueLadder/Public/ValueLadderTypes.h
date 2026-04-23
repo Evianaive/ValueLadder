@@ -2,12 +2,83 @@
 
 #include "CoreMinimal.h"
 
+#include "ValueLadderSemanticRole.h"
+
 enum class EValueLadderNumericType : uint8
 {
 	Float,
 	Double,
-	Int32
+	Int8,
+	UInt8,
+	Int16,
+	UInt16,
+	Int32,
+	UInt32,
+	Int64,
+	UInt64
 };
+
+namespace ValueLadder
+{
+	inline bool IsIntegerNumericType(const EValueLadderNumericType NumericType)
+	{
+		switch (NumericType)
+		{
+		case EValueLadderNumericType::Int8:
+		case EValueLadderNumericType::UInt8:
+		case EValueLadderNumericType::Int16:
+		case EValueLadderNumericType::UInt16:
+		case EValueLadderNumericType::Int32:
+		case EValueLadderNumericType::UInt32:
+		case EValueLadderNumericType::Int64:
+		case EValueLadderNumericType::UInt64:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	inline bool IsFloatingPointNumericType(const EValueLadderNumericType NumericType)
+	{
+		return NumericType == EValueLadderNumericType::Float || NumericType == EValueLadderNumericType::Double;
+	}
+
+	inline const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
+	{
+		switch (NumericType)
+		{
+		case EValueLadderNumericType::Float:
+			return TEXT("Float");
+		case EValueLadderNumericType::Double:
+			return TEXT("Double");
+		case EValueLadderNumericType::Int8:
+			return TEXT("Int8");
+		case EValueLadderNumericType::UInt8:
+			return TEXT("UInt8");
+		case EValueLadderNumericType::Int16:
+			return TEXT("Int16");
+		case EValueLadderNumericType::UInt16:
+			return TEXT("UInt16");
+		case EValueLadderNumericType::Int32:
+			return TEXT("Int32");
+		case EValueLadderNumericType::UInt32:
+			return TEXT("UInt32");
+		case EValueLadderNumericType::Int64:
+			return TEXT("Int64");
+		case EValueLadderNumericType::UInt64:
+			return TEXT("UInt64");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+}
+
+inline EValueLadderSemanticRole GetDefaultSemanticRole(const EValueLadderNumericType NumericType)
+{
+	return ValueLadder::IsIntegerNumericType(NumericType)
+		? EValueLadderSemanticRole::IntegerDiscrete
+		: EValueLadderSemanticRole::GenericScalar;
+}
 
 struct FValueLadderConstraintRange
 {
