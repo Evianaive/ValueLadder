@@ -5,6 +5,7 @@
 #include "Input/ValueLadderInputProcessor.h"
 #include "ValueLadderLog.h"
 #include "ValueLadderSettings.h"
+#include "Customization/IntPointPropertyCustomization.h"
 #include "Customization/NumericPropertyCustomization.h"
 #include "Customization/TransformPropertyCustomization.h"
 #include "Customization/VectorPropertyCustomization.h"
@@ -82,15 +83,37 @@ void FValueLadderModule::RegisterPropertyCustomizations()
 		return;
 	}
 
-	UE_LOG(LogValueLadder, Display, TEXT("[Module] Registering property customizations for float/double/int32/int/vector/transform."));
+	UE_LOG(LogValueLadder, Display, TEXT("[Module] Registering property customizations for scalar numerics, intpoint, vector, and transform."));
+	if (!FModuleManager::Get().IsModuleLoaded(TEXT("DetailCustomizations")))
+	{
+		FModuleManager::LoadModuleChecked<IModuleInterface>(TEXT("DetailCustomizations"));
+		UE_LOG(LogValueLadder, Display, TEXT("[Module] Loaded DetailCustomizations before ValueLadder property overrides."));
+	}
+
 	FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("FloatProperty"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("DoubleProperty"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("ByteProperty"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Int8Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Int16Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("IntProperty"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Int64Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("UInt16Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("UInt32Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("UInt64Property"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("float"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("double"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("uint8"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("int8"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("int16"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("int32"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("int"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("int64"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("uint16"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("uint32"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("uint64"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FNumericPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("IntPoint"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FIntPointPropertyCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Int32Point"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FIntPointPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Vector"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FVectorPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Transform"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FTransformPropertyCustomization::MakeInstance));
 	PropertyModule.RegisterCustomPropertyTypeLayout(TEXT("Transform3f"), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FTransformPropertyCustomization::MakeInstance));
@@ -120,11 +143,27 @@ void FValueLadderModule::UnregisterPropertyCustomizations()
 	FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>(TEXT("PropertyEditor"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("FloatProperty"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("DoubleProperty"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("ByteProperty"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Int8Property"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Int16Property"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("IntProperty"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Int64Property"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("UInt16Property"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("UInt32Property"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("UInt64Property"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("float"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("double"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("uint8"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("int8"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("int16"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("int32"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("int"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("int64"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("uint16"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("uint32"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("uint64"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("IntPoint"));
+	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Int32Point"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Vector"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Transform"));
 	PropertyModule.UnregisterCustomPropertyTypeLayout(TEXT("Transform3f"));
