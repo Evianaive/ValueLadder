@@ -24,6 +24,12 @@ public:
 
 private:
 	static bool ResolveNumericType(const TSharedRef<IPropertyHandle>& PropertyHandle, EValueLadderNumericType& OutType);
+	void ClearRegisteredHandles();
+	void RegisterLiveWidgetSubtrees(
+		const TSharedRef<SWidget>& NameWidget,
+		const TSharedRef<SWidget>& ValueWidget,
+		const FValueLadderPropertyTarget& Target,
+		const FString& PropertyDisplayName);
 
 	TArray<FValueLadderTargetHandle> RegisteredHandles;
 };

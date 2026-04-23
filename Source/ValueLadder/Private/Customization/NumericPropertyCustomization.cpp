@@ -2,26 +2,29 @@
 
 #include "ValueLadderLog.h"
 #include "DetailWidgetRow.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Layout/Children.h"
 #include "PropertyHandle.h"
+#include "Types/ISlateMetaData.h"
 #include "UObject/UnrealType.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/SWidget.h"
 
 namespace
 {
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
-		switch (NumericType)
-		{
-		case EValueLadderNumericType::Float:
-			return TEXT("Float");
-		case EValueLadderNumericType::Double:
-			return TEXT("Double");
-		case EValueLadderNumericType::Int32:
-			return TEXT("Int32");
-		default:
-			return TEXT("Unknown");
-		}
+		return ValueLadder::ToNumericTypeString(NumericType);
+	}
+
+	FName MakeHandleTag(const FValueLadderTargetHandle Handle)
+	{
+		return FName(*FString::Printf(TEXT("ValueLadder.Handle.%llu"), static_cast<uint64>(Handle)));
+	}
+
+	FName MakeDetailRowTag(const FString& PropertyDisplayName)
+	{
+		return FName(*FString::Printf(TEXT("DetailRowItem.%s"), *PropertyDisplayName));
 	}
 
 	void RegisterWidgetSubtree(
@@ -42,16 +45,27 @@ namespace
 			RegisterWidgetSubtree(Children->GetChildAt(ChildIndex), Target, OutHandles);
 		}
 	}
+
+	void TagWidgetSubtree(const TSharedRef<SWidget>& RootWidget, const FName Tag)
+	{
+		RootWidget->AddMetadata(MakeShared<FTagMetaData>(Tag));
+
+		FChildren* Children = RootWidget->GetAllChildren();
+		if (Children == nullptr)
+		{
+			return;
+		}
+
+		for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
+		{
+			TagWidgetSubtree(Children->GetChildAt(ChildIndex), Tag);
+		}
+	}
 }
 
 FNumericPropertyCustomization::~FNumericPropertyCustomization()
 {
-	for (const FValueLadderTargetHandle RegisteredHandle : RegisteredHandles)
-	{
-		UE_LOG(LogValueLadder, Display, TEXT("[Customization][Numeric] Unregister handle=%llu"), static_cast<uint64>(RegisteredHandle));
-		FValueLadderTargetRegistry::Get().UnregisterTarget(RegisteredHandle);
-	}
-	RegisteredHandles.Reset();
+	ClearRegisteredHandles();
 }
 
 TSharedRef<IPropertyTypeCustomization> FNumericPropertyCustomization::MakeInstance()
@@ -80,30 +94,24 @@ void FNumericPropertyCustomization::CustomizeHeader(
 		return;
 	}
 
-	TSharedRef<SWidget> NameWidget = PropertyHandle->CreatePropertyNameWidget();
-	TSharedRef<SWidget> ValueWidget = PropertyHandle->CreatePropertyValueWidget();
+	const TSharedRef<SWidget> RawNameWidget = PropertyHandle->CreatePropertyNameWidget();
+	const TSharedRef<SWidget> RawValueWidget = PropertyHandle->CreatePropertyValueWidget();
+	const TSharedRef<SBox> NameWidget = SNew(SBox)
+	[
+		RawNameWidget
+	];
+	const TSharedRef<SBox> ValueWidget = SNew(SBox)
+	[
+		RawValueWidget
+	];
 	FValueLadderPropertyTarget Target;
 	Target.PropertyHandle = PropertyHandle;
 	Target.NumericType = NumericType;
-	for (const FValueLadderTargetHandle RegisteredHandle : RegisteredHandles)
-	{
-		FValueLadderTargetRegistry::Get().UnregisterTarget(RegisteredHandle);
-	}
-	RegisteredHandles.Reset();
-	RegisterWidgetSubtree(NameWidget, Target, RegisteredHandles);
-	RegisterWidgetSubtree(ValueWidget, Target, RegisteredHandles);
-	
-	// Additional validation for debugging
-	const bool bHandleValid = PropertyHandle->IsValidHandle();
-	UE_LOG(LogValueLadder, Display, TEXT("[Customization][Numeric] Registered property '%s' subtreeHandles=%d nameWidget=%p valueWidget=%p type=%s IsValidHandle=%s"), 
-		*PropertyHandle->GetPropertyDisplayName().ToString(), 
-		RegisteredHandles.Num(), 
-		static_cast<const void*>(&NameWidget.Get()), 
-		static_cast<const void*>(&ValueWidget.Get()), 
-		ToNumericTypeString(NumericType),
-		bHandleValid ? TEXT("true") : TEXT("false"));
+	Target.SemanticRole = GetDefaultSemanticRole(NumericType);
+	const FString PropertyDisplayName = PropertyHandle->GetPropertyDisplayName().ToString();
 
 	HeaderRow
+	.RowTag(MakeDetailRowTag(PropertyDisplayName))
 	.NameContent()
 	[
 		NameWidget
@@ -114,6 +122,8 @@ void FNumericPropertyCustomization::CustomizeHeader(
 	[
 		ValueWidget
 	];
+
+	RegisterLiveWidgetSubtrees(NameWidget, ValueWidget, Target, PropertyDisplayName);
 }
 
 void FNumericPropertyCustomization::CustomizeChildren(
@@ -123,12 +133,71 @@ void FNumericPropertyCustomization::CustomizeChildren(
 {
 }
 
+void FNumericPropertyCustomization::ClearRegisteredHandles()
+{
+	for (const FValueLadderTargetHandle RegisteredHandle : RegisteredHandles)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Customization][Numeric] Unregister handle=%llu"), static_cast<uint64>(RegisteredHandle));
+		FValueLadderTargetRegistry::Get().UnregisterTarget(RegisteredHandle);
+	}
+
+	RegisteredHandles.Reset();
+}
+
+void FNumericPropertyCustomization::RegisterLiveWidgetSubtrees(
+	const TSharedRef<SWidget>& NameWidget,
+	const TSharedRef<SWidget>& ValueWidget,
+	const FValueLadderPropertyTarget& Target,
+	const FString& PropertyDisplayName)
+{
+	ClearRegisteredHandles();
+
+	const int32 NameRootHandleIndex = RegisteredHandles.Num();
+	RegisterWidgetSubtree(NameWidget, Target, RegisteredHandles);
+	const FValueLadderTargetHandle NameRootHandle = RegisteredHandles.IsValidIndex(NameRootHandleIndex)
+		? RegisteredHandles[NameRootHandleIndex]
+		: 0;
+
+	const int32 ValueRootHandleIndex = RegisteredHandles.Num();
+	RegisterWidgetSubtree(ValueWidget, Target, RegisteredHandles);
+	const FValueLadderTargetHandle ValueRootHandle = RegisteredHandles.IsValidIndex(ValueRootHandleIndex)
+		? RegisteredHandles[ValueRootHandleIndex]
+		: 0;
+
+	if (NameRootHandle != 0)
+	{
+		TagWidgetSubtree(NameWidget, MakeHandleTag(NameRootHandle));
+	}
+
+	if (ValueRootHandle != 0)
+	{
+		TagWidgetSubtree(ValueWidget, MakeHandleTag(ValueRootHandle));
+	}
+
+	const bool bHandleValid = Target.PropertyHandle.IsValid() && Target.PropertyHandle->IsValidHandle();
+	UE_LOG(
+		LogValueLadder,
+		Display,
+		TEXT("[Customization][Numeric] Registered property '%s' subtreeHandles=%d nameWidget=%p valueWidget=%p type=%s IsValidHandle=%s"),
+		*PropertyDisplayName,
+		RegisteredHandles.Num(),
+		static_cast<const void*>(&NameWidget.Get()),
+		static_cast<const void*>(&ValueWidget.Get()),
+		ToNumericTypeString(Target.NumericType),
+		bHandleValid ? TEXT("true") : TEXT("false"));
+}
+
 bool FNumericPropertyCustomization::ResolveNumericType(
 	const TSharedRef<IPropertyHandle>& PropertyHandle,
 	EValueLadderNumericType& OutType)
 {
 	const FProperty* Property = PropertyHandle->GetProperty();
 	if (Property == nullptr)
+	{
+		return false;
+	}
+
+	if (Property->HasMetaData(TEXT("Bitmask")) || Property->IsA<FEnumProperty>())
 	{
 		return false;
 	}
@@ -145,9 +214,57 @@ bool FNumericPropertyCustomization::ResolveNumericType(
 		return true;
 	}
 
+	if (Property->IsA<FByteProperty>())
+	{
+		const FByteProperty* ByteProperty = CastField<const FByteProperty>(Property);
+		if (ByteProperty == nullptr || ByteProperty->Enum != nullptr)
+		{
+			return false;
+		}
+
+		OutType = EValueLadderNumericType::UInt8;
+		return true;
+	}
+
+	if (Property->IsA<FInt8Property>())
+	{
+		OutType = EValueLadderNumericType::Int8;
+		return true;
+	}
+
+	if (Property->IsA<FInt16Property>())
+	{
+		OutType = EValueLadderNumericType::Int16;
+		return true;
+	}
+
 	if (Property->IsA<FIntProperty>())
 	{
 		OutType = EValueLadderNumericType::Int32;
+		return true;
+	}
+
+	if (Property->IsA<FInt64Property>())
+	{
+		OutType = EValueLadderNumericType::Int64;
+		return true;
+	}
+
+	if (Property->IsA<FUInt16Property>())
+	{
+		OutType = EValueLadderNumericType::UInt16;
+		return true;
+	}
+
+	if (Property->IsA<FUInt32Property>())
+	{
+		OutType = EValueLadderNumericType::UInt32;
+		return true;
+	}
+
+	if (Property->IsA<FUInt64Property>())
+	{
+		OutType = EValueLadderNumericType::UInt64;
 		return true;
 	}
 
