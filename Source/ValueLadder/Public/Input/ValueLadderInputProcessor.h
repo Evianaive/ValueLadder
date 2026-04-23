@@ -29,17 +29,26 @@ private:
 	void DestroyOverlay();
 	void EndGesture(bool bCommit, const TCHAR* Reason = TEXT("Unknown"));
 	void ResetGestureState();
-	int32 ResolveActiveLadderIndex(const UValueLadderSettings& Settings) const;
+	FName ResolveTargetUnitKey(const FValueLadderPropertyTarget& Target) const;
+	void MaybeShowUnsupportedTargetNotification(const FWidgetPath& WidgetsUnderCursor, const FText& Message);
+	bool IsPointerInSelectionLane(const FVector2D& PointerScreenPosition) const;
+	int32 ResolveHoveredLadderIndex(const UValueLadderSettings& Settings, const FVector2D& PointerScreenPosition) const;
 	bool BeginSlateCapture(FSlateApplication& SlateApp);
 	void EndSlateCapture(FSlateApplication& SlateApp);
 	bool HasOwnedCapture(FSlateApplication& SlateApp) const;
+	bool DoesCaptorMatchExpectedWidget(const TSharedPtr<SWidget>& CurrentCaptor) const;
+	TSharedPtr<SWidget> ResolveCaptureWidget(const FWidgetPath& WidgetPath) const;
 	FWidgetPath BuildCapturePath() const;
+	FWidgetPath BuildCapturePathToWidget(const TSharedRef<SWidget>& Widget) const;
 
 	bool bDragging = false;
 	bool bCursorLocked = false;
+	bool bRowLocked = false;
+	bool bHasEnteredSelectionLane = false;
 	bool bPendingCursorRestore = false;
 	FVector2D DragStartPosition = FVector2D::ZeroVector;
 	FVector2D CursorRestorePosition = FVector2D::ZeroVector;
+	FVector2D LockReferencePosition = FVector2D::ZeroVector;
 	FVector2D AccumulatedDragDelta = FVector2D::ZeroVector;
 	FVector2D OverlayAnchorPosition = FVector2D::ZeroVector;
 	FWidgetPath GestureEventPath;
@@ -49,10 +58,12 @@ private:
 	FValueLadderPropertyTarget ActiveTarget;
 	FValueLadderSession Session;
 	TArray<FText> ActiveLadderValues;
+	FName ActiveUnitKey;
 	int32 StartLadderIndex = 0;
 	int32 ActiveLadderIndex = 0;
 	uint64 ActiveGestureId = 0;
 	uint64 NextGestureId = 1;
+	double LastUnsupportedNotificationTimeSeconds = -1000.0;
 
 	TSharedPtr<SValueLadderOverlay> OverlayWidget;
 	TWeakPtr<SWindow> OverlayWindow;

@@ -10,18 +10,17 @@
 
 namespace
 {
-	constexpr float CellOuterPadding = 2.0f;
-	constexpr float StepLinePadding = 1.0f;
-	constexpr float ActiveValuePadding = 1.0f;
+	constexpr float StepLinePadding = 0.0f;
+	constexpr float ActiveValuePadding = 0.0f;
 
 	FLinearColor GetChromeColor()
 	{
-		return FLinearColor(0.06f, 0.07f, 0.09f, 0.96f);
+		return FLinearColor(0.02f, 0.02f, 0.02f, 0.96f);
 	}
 
 	FLinearColor GetIdleCellColor()
 	{
-		return FLinearColor(0.14f, 0.16f, 0.20f, 0.96f);
+		return FLinearColor(0.08f, 0.08f, 0.08f, 0.96f);
 	}
 
 	FLinearColor GetActiveCellColor()
@@ -42,7 +41,7 @@ void SValueLadderOverlay::Construct(const FArguments& InArgs)
 			SNew(SBorder)
 			.BorderImage(FAppStyle::Get().GetBrush(TEXT("Menu.Background")))
 			.BorderBackgroundColor(GetChromeColor())
-			.Padding(FMargin(4.0f))
+			.Padding(FMargin(ValueLadder::UI::OverlayChromeInsetPx))
 			[
 				SAssignNew(LadderViewportBox, SBox)
 				.WidthOverride(ValueLadder::UI::LadderListWidthPx)
@@ -71,21 +70,21 @@ void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, con
 		RebuildLadderRows(InLadderValues);
 	}
 
+	if (LadderViewportBox.IsValid())
+	{
+		const float ContentHeightPx = InLadderValues.Num() > 0
+			? static_cast<float>(InLadderValues.Num()) * ValueLadder::UI::LadderRowStridePx - ValueLadder::UI::LadderRowSpacingPx
+			: ValueLadder::UI::LadderCellHeightPx;
+		LadderViewportBox->SetHeightOverride(ContentHeightPx);
+	}
+
 	if (!LadderListBox.IsValid())
 	{
 		UE_LOG(LogValueLadder, Warning, TEXT("[OverlayUI] UpdateDisplay has invalid LadderListBox. rows=%d activeIndex=%d"), InLadderValues.Num(), InActiveIndex);
 	}
 	else
 	{
-		const float ActiveRowTopPx = static_cast<float>(FMath::Max(InActiveIndex, 0)) * ValueLadder::UI::LadderCellHeightPx;
-		const float MinVerticalOffsetPx = ActiveRowTopPx - (ValueLadder::UI::LadderViewportHeightPx - ValueLadder::UI::LadderCellHeightPx);
-		const float MaxVerticalOffsetPx = ActiveRowTopPx;
-		const float ClampedVerticalOffsetPx = FMath::Clamp(static_cast<float>(VerticalDragOffsetPx), MinVerticalOffsetPx, MaxVerticalOffsetPx);
-		if (!FMath::IsNearlyEqual(ClampedVerticalOffsetPx, static_cast<float>(VerticalDragOffsetPx), 0.5f))
-		{
-			UE_LOG(LogValueLadder, Verbose, TEXT("[OverlayUI] Vertical offset clamped from %.2f to %.2f. activeIndex=%d rows=%d bounds=[%.2f, %.2f]"), VerticalDragOffsetPx, ClampedVerticalOffsetPx, InActiveIndex, InLadderValues.Num(), MinVerticalOffsetPx, MaxVerticalOffsetPx);
-		}
-		LadderListBox->SetRenderTransform(FSlateRenderTransform(FVector2D(0.0f, -ClampedVerticalOffsetPx)));
+		LadderListBox->SetRenderTransform(FSlateRenderTransform(FVector2D::ZeroVector));
 	}
 
 	for (int32 Index = 0; Index < LadderRowStepTexts.Num(); ++Index)
@@ -98,8 +97,9 @@ void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, con
 		if (LadderRowValueTexts.IsValidIndex(Index) && LadderRowValueTexts[Index].IsValid())
 		{
 			const bool bIsActive = Index == InActiveIndex;
-			LadderRowValueTexts[Index]->SetText(FText::FromString(bIsActive ? InPreviewValue : FString()));
-			LadderRowValueTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D(bIsActive ? static_cast<float>(-HorizontalDragOffsetPx * 0.15) : 0.0f, 0.0f)));
+			const FString ActiveDeltaText = FString::Printf(TEXT("%+.3g"), InDelta);
+			LadderRowValueTexts[Index]->SetText(FText::FromString(bIsActive ? ActiveDeltaText : FString()));
+			LadderRowValueTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D::ZeroVector));
 		}
 	}
 
@@ -133,6 +133,7 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 
 		LadderListBox->AddSlot()
 		.AutoHeight()
+		.Padding(0.0f, 0.0f, 0.0f, ValueLadder::UI::LadderRowSpacingPx)
 		[
 			SNew(SBox)
 			.HeightOverride(ValueLadder::UI::LadderCellHeightPx)
@@ -140,7 +141,7 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 				SAssignNew(RowBorder, SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush(TEXT("WhiteBrush")))
 				.BorderBackgroundColor(GetIdleCellColor())
-				.Padding(FMargin(6.0f, 3.0f))
+				.Padding(FMargin(6.0f, 2.0f))
 				[
 					SNew(SVerticalBox)
 					+ SVerticalBox::Slot()
@@ -149,7 +150,7 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 					[
 						SAssignNew(StepText, STextBlock)
 						.Text(LadderValue)
-						.ColorAndOpacity(FSlateColor(FLinearColor(0.80f, 0.82f, 0.86f)))
+						.ColorAndOpacity(FSlateColor(FLinearColor(0.60f, 0.62f, 0.66f)))
 					]
 					+ SVerticalBox::Slot()
 					.FillHeight(1.0f)
@@ -179,12 +180,13 @@ void SValueLadderOverlay::UpdateLadderHighlight(const int32 InActiveIndex, const
 		}
 
 		const bool bIsActive = Index == InActiveIndex;
-		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? GetActiveCellColor() : GetIdleCellColor());
-		LadderRowBorders[Index]->SetDesiredSizeScale(bIsActive && bCursorLocked ? FVector2D(1.0f, 1.08f) : FVector2D(1.0f, 1.0f));
+		const FLinearColor ActiveRowColor = bCursorLocked ? GetActiveCellColor() : FLinearColor(0.86f, 0.48f, 0.07f, 0.92f);
+		LadderRowBorders[Index]->SetBorderBackgroundColor(bIsActive ? ActiveRowColor : GetIdleCellColor());
+		LadderRowBorders[Index]->SetDesiredSizeScale(bIsActive && bCursorLocked ? FVector2D(1.0f, 1.03f) : FVector2D(1.0f, 1.0f));
 
 		if (LadderRowStepTexts.IsValidIndex(Index) && LadderRowStepTexts[Index].IsValid())
 		{
-			LadderRowStepTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor(0.10f, 0.10f, 0.12f)) : FSlateColor(FLinearColor(0.80f, 0.82f, 0.86f)));
+			LadderRowStepTexts[Index]->SetColorAndOpacity(bIsActive ? FSlateColor(FLinearColor(0.10f, 0.10f, 0.12f)) : FSlateColor(FLinearColor(0.60f, 0.62f, 0.66f)));
 		}
 
 		if (LadderRowValueTexts.IsValidIndex(Index) && LadderRowValueTexts[Index].IsValid())
