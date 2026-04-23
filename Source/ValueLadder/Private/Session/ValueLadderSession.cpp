@@ -120,6 +120,38 @@ bool FValueLadderSession::UpdateFromPixelOffset(
 	return true;
 }
 
+bool FValueLadderSession::ResetDeltaContext(FString& OutError)
+{
+	if (!bActive)
+	{
+		OutError = TEXT("No active Value Ladder session.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Session] ResetDeltaContext rejected: %s"), *OutError);
+		return false;
+	}
+
+	const bool bNeedsBaselineRestore = !FMath::IsNearlyZero(CurrentDelta) || bHasSegmentContext || CurrentTickCount != 0 || !FMath::IsNearlyZero(CurrentTickProgress) || !FMath::IsNearlyEqual(CurrentMultiplier, 1.0);
+	if (bNeedsBaselineRestore && !Adapter.ApplyDelta(Target, Baseline, 0.0, true))
+	{
+		OutError = TEXT("Failed to restore baseline while resetting delta context.");
+		UE_LOG(LogValueLadder, Warning, TEXT("[Session] ResetDeltaContext failed: %s"), *OutError);
+		return false;
+	}
+
+	CurrentDelta = 0.0;
+	CurrentMultiplier = 1.0;
+	bHasSegmentContext = false;
+	SegmentBaseDelta = 0.0;
+	SegmentStartPixelOffset = 0.0;
+	SegmentLadderStep = 0.0;
+	SegmentMultiplier = 1.0;
+	CurrentTickCount = 0;
+	CurrentTickProgress = 0.0;
+	CurrentPixelsToNextTick = 0.0;
+
+	UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Session] Reset delta context to baseline."));
+	return true;
+}
+
 void FValueLadderSession::Commit()
 {
 	if (!bActive)

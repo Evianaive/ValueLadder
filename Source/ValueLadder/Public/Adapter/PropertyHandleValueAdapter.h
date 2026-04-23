@@ -23,6 +23,7 @@ struct FValueLadderPropertyTarget
 	TSharedPtr<IPropertyHandle> PropertyHandle;
 	ETargetKind Kind = ETargetKind::PropertyHandleScalar;
 	EValueLadderNumericType NumericType = EValueLadderNumericType::Float;
+	EValueLadderSemanticRole SemanticRole = EValueLadderSemanticRole::GenericScalar;
 	bool bIsVectorComponent = false;
 	ETransformField TransformField = ETransformField::Location;
 	FName ComponentName;

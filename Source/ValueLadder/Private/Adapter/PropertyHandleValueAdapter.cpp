@@ -6,6 +6,9 @@
 #include "Math/Transform.h"
 #include "UObject/UnrealType.h"
 
+#include <limits>
+#include <type_traits>
+
 namespace
 {
 const FName VLT_NAME_ClampMin(TEXT("ClampMin"));
@@ -21,17 +24,7 @@ const FName VLT_NAME_Yaw(TEXT("Yaw"));
 
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
-		switch (NumericType)
-		{
-		case EValueLadderNumericType::Float:
-			return TEXT("Float");
-		case EValueLadderNumericType::Double:
-			return TEXT("Double");
-		case EValueLadderNumericType::Int32:
-			return TEXT("Int32");
-		default:
-			return TEXT("Unknown");
-		}
+		return ValueLadder::ToNumericTypeString(NumericType);
 	}
 
 	const TCHAR* ToTargetKindString(const FValueLadderPropertyTarget::ETargetKind Kind)
@@ -149,6 +142,27 @@ const FName VLT_NAME_Yaw(TEXT("Yaw"));
 			Transform.SetTranslation(Value);
 		}
 	}
+
+	template <typename NumericT>
+	double ReadScalarAsDouble(void* RawData)
+	{
+		return static_cast<double>(*static_cast<NumericT*>(RawData));
+	}
+
+	template <typename NumericT>
+	NumericT ClampRoundedInteger(const double NewValue)
+	{
+		const double RoundedValue = ValueLadder::Math::ApplyIntegerRounding(NewValue);
+		const double MinValue = static_cast<double>(std::numeric_limits<NumericT>::lowest());
+		const double MaxValue = static_cast<double>(std::numeric_limits<NumericT>::max());
+		return static_cast<NumericT>(FMath::Clamp(RoundedValue, MinValue, MaxValue));
+	}
+
+	template <typename NumericT>
+	FString BuildIntegerPreviewString(const double PreviewValue)
+	{
+		return LexToString(ClampRoundedInteger<NumericT>(PreviewValue));
+	}
 }
 
 bool FPropertyHandleValueAdapter::CaptureBaseline(
@@ -262,7 +276,7 @@ bool FPropertyHandleValueAdapter::ApplyDelta(
 		double NewValue = Baseline.BaselineValues[Index] + Delta;
 		NewValue = Baseline.Constraints.Clamp(NewValue);
 
-		if (Target.NumericType == EValueLadderNumericType::Int32)
+		if (ValueLadder::IsIntegerNumericType(Target.NumericType))
 		{
 			NewValue = ValueLadder::Math::ApplyIntegerRounding(NewValue);
 		}
@@ -314,9 +328,29 @@ FString FPropertyHandleValueAdapter::BuildPreviewText(
 	}
 
 	double PreviewValue = Baseline.Constraints.Clamp(Baseline.BaselineValues[0] + Delta);
-	if (Target.NumericType == EValueLadderNumericType::Int32)
+	if (ValueLadder::IsIntegerNumericType(Target.NumericType))
 	{
-		return FString::FromInt(FMath::RoundToInt(PreviewValue));
+		switch (Target.NumericType)
+		{
+		case EValueLadderNumericType::Int8:
+			return BuildIntegerPreviewString<int8>(PreviewValue);
+		case EValueLadderNumericType::UInt8:
+			return BuildIntegerPreviewString<uint8>(PreviewValue);
+		case EValueLadderNumericType::Int16:
+			return BuildIntegerPreviewString<int16>(PreviewValue);
+		case EValueLadderNumericType::UInt16:
+			return BuildIntegerPreviewString<uint16>(PreviewValue);
+		case EValueLadderNumericType::Int32:
+			return BuildIntegerPreviewString<int32>(PreviewValue);
+		case EValueLadderNumericType::UInt32:
+			return BuildIntegerPreviewString<uint32>(PreviewValue);
+		case EValueLadderNumericType::Int64:
+			return BuildIntegerPreviewString<int64>(PreviewValue);
+		case EValueLadderNumericType::UInt64:
+			return BuildIntegerPreviewString<uint64>(PreviewValue);
+		default:
+			break;
+		}
 	}
 
 	return FString::SanitizeFloat(PreviewValue);
@@ -365,11 +399,25 @@ double FPropertyHandleValueAdapter::ReadScalar(void* RawData, const EValueLadder
 	switch (NumericType)
 	{
 	case EValueLadderNumericType::Float:
-		return static_cast<double>(*static_cast<float*>(RawData));
+		return ReadScalarAsDouble<float>(RawData);
 	case EValueLadderNumericType::Double:
-		return *static_cast<double*>(RawData);
+		return ReadScalarAsDouble<double>(RawData);
+	case EValueLadderNumericType::Int8:
+		return ReadScalarAsDouble<int8>(RawData);
+	case EValueLadderNumericType::UInt8:
+		return ReadScalarAsDouble<uint8>(RawData);
+	case EValueLadderNumericType::Int16:
+		return ReadScalarAsDouble<int16>(RawData);
+	case EValueLadderNumericType::UInt16:
+		return ReadScalarAsDouble<uint16>(RawData);
 	case EValueLadderNumericType::Int32:
-		return static_cast<double>(*static_cast<int32*>(RawData));
+		return ReadScalarAsDouble<int32>(RawData);
+	case EValueLadderNumericType::UInt32:
+		return ReadScalarAsDouble<uint32>(RawData);
+	case EValueLadderNumericType::Int64:
+		return ReadScalarAsDouble<int64>(RawData);
+	case EValueLadderNumericType::UInt64:
+		return ReadScalarAsDouble<uint64>(RawData);
 	default:
 		return 0.0;
 	}
@@ -385,8 +433,29 @@ void FPropertyHandleValueAdapter::WriteScalar(void* RawData, const EValueLadderN
 	case EValueLadderNumericType::Double:
 		*static_cast<double*>(RawData) = NewValue;
 		break;
+	case EValueLadderNumericType::Int8:
+		*static_cast<int8*>(RawData) = ClampRoundedInteger<int8>(NewValue);
+		break;
+	case EValueLadderNumericType::UInt8:
+		*static_cast<uint8*>(RawData) = ClampRoundedInteger<uint8>(NewValue);
+		break;
+	case EValueLadderNumericType::Int16:
+		*static_cast<int16*>(RawData) = ClampRoundedInteger<int16>(NewValue);
+		break;
+	case EValueLadderNumericType::UInt16:
+		*static_cast<uint16*>(RawData) = ClampRoundedInteger<uint16>(NewValue);
+		break;
 	case EValueLadderNumericType::Int32:
-		*static_cast<int32*>(RawData) = FMath::RoundToInt(NewValue);
+		*static_cast<int32*>(RawData) = ClampRoundedInteger<int32>(NewValue);
+		break;
+	case EValueLadderNumericType::UInt32:
+		*static_cast<uint32*>(RawData) = ClampRoundedInteger<uint32>(NewValue);
+		break;
+	case EValueLadderNumericType::Int64:
+		*static_cast<int64*>(RawData) = ClampRoundedInteger<int64>(NewValue);
+		break;
+	case EValueLadderNumericType::UInt64:
+		*static_cast<uint64*>(RawData) = ClampRoundedInteger<uint64>(NewValue);
 		break;
 	default:
 		break;

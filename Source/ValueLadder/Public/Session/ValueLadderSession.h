@@ -12,6 +12,7 @@ class FValueLadderSession
 public:
 	bool Begin(const FValueLadderPropertyTarget& InTarget, const FText& TransactionText, FString& OutError);
 	bool UpdateFromPixelOffset(double PixelOffset, double LadderStep, bool bShiftDown, bool bCtrlDown, const UValueLadderSettings& Settings, FString& OutError);
+	bool ResetDeltaContext(FString& OutError);
 	void Commit();
 	void Cancel();
 
