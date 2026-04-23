@@ -101,6 +101,7 @@ void FVectorPropertyCustomization::CustomizeChildren(
 		FValueLadderPropertyTarget Target;
 		Target.PropertyHandle = ChildHandle;
 		Target.NumericType = NumericType;
+		Target.SemanticRole = GetDefaultSemanticRole(NumericType);
 		Target.bIsVectorComponent = true;
 		const FValueLadderTargetHandle NameHandle = FValueLadderTargetRegistry::Get().RegisterTarget(NameWidget, Target);
 		const FValueLadderTargetHandle ValueHandle = FValueLadderTargetRegistry::Get().RegisterTarget(ValueWidget, Target);

@@ -21,6 +21,21 @@ namespace
 	const FName VLT_NAME_Pitch(TEXT("Pitch"));
 	const FName VLT_NAME_Yaw(TEXT("Yaw"));
 
+	EValueLadderSemanticRole GetSemanticRoleFromTransformField(const FValueLadderPropertyTarget::ETransformField TransformField)
+	{
+		switch (TransformField)
+		{
+		case FValueLadderPropertyTarget::ETransformField::Location:
+			return EValueLadderSemanticRole::Translation;
+		case FValueLadderPropertyTarget::ETransformField::Rotation:
+			return EValueLadderSemanticRole::Rotation;
+		case FValueLadderPropertyTarget::ETransformField::Scale:
+			return EValueLadderSemanticRole::Scale;
+		default:
+			return EValueLadderSemanticRole::GenericScalar;
+		}
+	}
+
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
 		switch (NumericType)
@@ -235,6 +250,7 @@ void FTransformPropertyCustomization::AddDirectVectorRow(
 		FValueLadderPropertyTarget Target;
 		Target.PropertyHandle = LeafHandle;
 		Target.NumericType = NumericType;
+		Target.SemanticRole = GetSemanticRoleFromTransformField(TransformField);
 		Target.bIsVectorComponent = true;
 		Target.TransformField = TransformField;
 		Target.ComponentName = LeafHandle->GetProperty()->GetFName();
@@ -273,6 +289,7 @@ void FTransformPropertyCustomization::AddRotationProxyRow(
 		Target.PropertyHandle = TransformHandle;
 		Target.Kind = FValueLadderPropertyTarget::ETargetKind::TransformProxy;
 		Target.NumericType = NumericType;
+		Target.SemanticRole = EValueLadderSemanticRole::Rotation;
 		Target.bIsVectorComponent = true;
 		Target.TransformField = FValueLadderPropertyTarget::ETransformField::Rotation;
 		Target.ComponentName = ComponentName;
