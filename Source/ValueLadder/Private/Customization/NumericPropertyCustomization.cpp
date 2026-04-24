@@ -2,6 +2,7 @@
 
 #include "ValueLadderLog.h"
 #include "DetailWidgetRow.h"
+#include "HAL/PlatformTime.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Layout/Children.h"
 #include "PropertyHandle.h"
@@ -12,6 +13,8 @@
 
 namespace
 {
+	constexpr double RegisterSubtreePerfLogThresholdUs = 500.0;
+
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
 		return ValueLadder::ToNumericTypeString(NumericType);
@@ -150,6 +153,7 @@ void FNumericPropertyCustomization::RegisterLiveWidgetSubtrees(
 	const FValueLadderPropertyTarget& Target,
 	const FString& PropertyDisplayName)
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
 	ClearRegisteredHandles();
 
 	const int32 NameRootHandleIndex = RegisteredHandles.Num();
@@ -185,6 +189,28 @@ void FNumericPropertyCustomization::RegisterLiveWidgetSubtrees(
 		static_cast<const void*>(&ValueWidget.Get()),
 		ToNumericTypeString(Target.NumericType),
 		bHandleValid ? TEXT("true") : TEXT("false"));
+
+	const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+	if (DurationUs >= RegisterSubtreePerfLogThresholdUs)
+	{
+		UE_LOG(
+			LogValueLadder,
+			Display,
+			TEXT("[Perf][Customization][Numeric] RegisterLiveWidgetSubtrees property='%s' handles=%d duration=%.1fus"),
+			*PropertyDisplayName,
+			RegisteredHandles.Num(),
+			DurationUs);
+	}
+	else
+	{
+		UE_LOG(
+			LogValueLadder,
+			VeryVerbose,
+			TEXT("[Perf][Customization][Numeric] RegisterLiveWidgetSubtrees property='%s' handles=%d duration=%.1fus"),
+			*PropertyDisplayName,
+			RegisteredHandles.Num(),
+			DurationUs);
+	}
 }
 
 bool FNumericPropertyCustomization::ResolveNumericType(

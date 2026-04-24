@@ -1,5 +1,6 @@
 #include "Input/ValueLadderTargetRegistry.h"
 
+#include "HAL/PlatformTime.h"
 #include "ValueLadderLog.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Types/ISlateMetaData.h"
@@ -7,6 +8,8 @@
 
 namespace
 {
+	constexpr double RegistryPerfLogThresholdUs = 250.0;
+
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
 		return ValueLadder::ToNumericTypeString(NumericType);
@@ -175,8 +178,11 @@ FValueLadderTargetHandle FValueLadderTargetRegistry::RegisterTarget(
 	const TSharedRef<SWidget>& Widget,
 	const FValueLadderPropertyTarget& Target)
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
 	FScopeLock Lock(&RegistryMutex);
+	const double CompactStartTimeSeconds = FPlatformTime::Seconds();
 	Compact_NoLock();
+	const double CompactDurationUs = (FPlatformTime::Seconds() - CompactStartTimeSeconds) * 1000000.0;
 
 	const FValueLadderTargetHandle NewHandle = NextHandle++;
 	FRegisteredTarget& RegisteredTarget = RegisteredTargets.Add(NewHandle);
@@ -192,6 +198,16 @@ FValueLadderTargetHandle FValueLadderTargetRegistry::RegisterTarget(
 		Target.bIsVectorComponent ? TEXT("true") : TEXT("false"),
 		RegisteredTargets.Num());
 
+	const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+	if (DurationUs >= RegistryPerfLogThresholdUs)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, CompactDurationUs, RegisteredTargets.Num());
+	}
+	else
+	{
+		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, CompactDurationUs, RegisteredTargets.Num());
+	}
+
 	return NewHandle;
 }
 
@@ -204,12 +220,27 @@ void FValueLadderTargetRegistry::UnregisterTarget(const FValueLadderTargetHandle
 
 bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget)
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
 	FScopeLock Lock(&RegistryMutex);
+	const double CompactStartTimeSeconds = FPlatformTime::Seconds();
 	Compact_NoLock();
+	const double CompactDurationUs = (FPlatformTime::Seconds() - CompactStartTimeSeconds) * 1000000.0;
 	OutTarget = FValueLadderPropertyTarget();
 
 	int32 WidgetMatchCount = 0;
 	int32 InvalidHandleMatchCount = 0;
+	const auto LogResolvePerf = [&](const TCHAR* Result)
+	{
+		const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+		if (DurationUs >= RegistryPerfLogThresholdUs)
+		{
+			UE_LOG(LogValueLadder, Display, TEXT("[Perf][Registry] ResolveTargetFromWidgetPath result=%s duration=%.1fus compact=%.1fus pathDepth=%d registered=%d widgetMatches=%d invalidMatches=%d"), Result, DurationUs, CompactDurationUs, WidgetPath.Widgets.Num(), RegisteredTargets.Num(), WidgetMatchCount, InvalidHandleMatchCount);
+		}
+		else
+		{
+			UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Registry] ResolveTargetFromWidgetPath result=%s duration=%.1fus compact=%.1fus pathDepth=%d registered=%d widgetMatches=%d invalidMatches=%d"), Result, DurationUs, CompactDurationUs, WidgetPath.Widgets.Num(), RegisteredTargets.Num(), WidgetMatchCount, InvalidHandleMatchCount);
+		}
+	};
 
 	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
 	{
@@ -244,6 +275,7 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 					continue;
 				}
 
+				LogResolvePerf(TEXT("direct-widget"));
 				return true;
 			}
 		}
@@ -290,6 +322,7 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 				static_cast<uint64>(TaggedHandle),
 				WidgetPathIndex,
 				*TagMetaData->Tag.ToString());
+			LogResolvePerf(TEXT("tagged-widget"));
 			return true;
 		}
 	}
@@ -340,12 +373,14 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 		if (PropertyNameMatch != nullptr && !bPropertyNameAmbiguous)
 		{
 			OutTarget = PropertyNameMatch->Target;
+			LogResolvePerf(TEXT("detail-row-property"));
 			return true;
 		}
 
 		if (DisplayNameMatch != nullptr && !bDisplayNameAmbiguous)
 		{
 			OutTarget = DisplayNameMatch->Target;
+			LogResolvePerf(TEXT("detail-row-display"));
 			return true;
 		}
 	}
@@ -363,6 +398,7 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 	}
 
 	OutTarget = FValueLadderPropertyTarget();
+	LogResolvePerf(TEXT("miss"));
 
 	return false;
 }
@@ -408,6 +444,7 @@ bool FValueLadderTargetRegistry::FindRegisteredWidgetForPropertyName(
 
 void FValueLadderTargetRegistry::Compact_NoLock()
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
 	const int32 BeforeCount = RegisteredTargets.Num();
 	int32 RemovedCount = 0;
 	int32 InvalidWidgetCount = 0;
@@ -464,5 +501,15 @@ void FValueLadderTargetRegistry::Compact_NoLock()
 			InvalidWidgetCount,
 			InvalidTargetCount,
 			InvalidBothCount);
+	}
+
+	const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+	if (RemovedCount > 0 || DurationUs >= RegistryPerfLogThresholdUs)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Perf][Registry] Compact duration=%.1fus before=%d removed=%d after=%d"), DurationUs, BeforeCount, RemovedCount, RegisteredTargets.Num());
+	}
+	else
+	{
+		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Registry] Compact duration=%.1fus before=%d removed=%d after=%d"), DurationUs, BeforeCount, RemovedCount, RegisteredTargets.Num());
 	}
 }

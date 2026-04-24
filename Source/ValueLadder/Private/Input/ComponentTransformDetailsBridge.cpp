@@ -1,6 +1,7 @@
 #include "Input/ComponentTransformDetailsBridge.h"
 
 #include "Components/SceneComponent.h"
+#include "HAL/PlatformTime.h"
 #include "IDetailsView.h"
 #include "IDetailTreeNode.h"
 #include "Layout/Children.h"
@@ -14,6 +15,8 @@
 
 namespace
 {
+	constexpr double TransformBridgePerfLogThresholdUs = 250.0;
+
 	const FName VLT_NAME_Location(TEXT("Location"));
 	const FName VLT_NAME_Rotation(TEXT("Rotation"));
 	const FName VLT_NAME_Scale(TEXT("Scale"));
@@ -173,6 +176,20 @@ void FComponentTransformDetailsBridge::Unregister(FPropertyEditorModule& Propert
 
 bool FComponentTransformDetailsBridge::ResolveTargetFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget)
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
+	const auto LogResolvePerf = [&](const TCHAR* Result)
+	{
+		const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+		if (DurationUs >= TransformBridgePerfLogThresholdUs)
+		{
+			UE_LOG(LogValueLadder, Display, TEXT("[Perf][TransformBridge] ResolveTargetFromWidgetPath result=%s duration=%.1fus pathDepth=%d"), Result, DurationUs, WidgetPath.Widgets.Num());
+		}
+		else
+		{
+			UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][TransformBridge] ResolveTargetFromWidgetPath result=%s duration=%.1fus pathDepth=%d"), Result, DurationUs, WidgetPath.Widgets.Num());
+		}
+	};
+
 	CompactStaleEntries();
 	OutTarget = FValueLadderPropertyTarget();
 
@@ -213,6 +230,7 @@ bool FComponentTransformDetailsBridge::ResolveTargetFromWidgetPath(const FWidget
 									OutTarget.bIsVectorComponent = true;
 									OutTarget.TransformField = Field;
 									OutTarget.ComponentName = ComponentName;
+									LogResolvePerf(TEXT("transform-cache-hit"));
 									return true;
 								}
 							}
@@ -227,33 +245,54 @@ bool FComponentTransformDetailsBridge::ResolveTargetFromWidgetPath(const FWidget
 		}
 	}
 
-	return TryResolveScalarNumericFromWidgetPath(WidgetPath, OutTarget);
+	const bool bResolvedScalar = TryResolveScalarNumericFromWidgetPath(WidgetPath, OutTarget);
+	LogResolvePerf(bResolvedScalar ? TEXT("scalar-cache-hit") : TEXT("miss"));
+	return bResolvedScalar;
 }
 
 void FComponentTransformDetailsBridge::HandleGenerateGlobalRowExtension(
 	const FOnGenerateGlobalRowExtensionArgs& InArgs,
 	TArray<FPropertyRowExtensionButton>& OutExtensions)
 {
+	const double StartTimeSeconds = FPlatformTime::Seconds();
+	const auto LogGenerationPerf = [&](const TCHAR* Result, const FProperty* Property)
+	{
+		const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
+		const FString PropertyName = Property != nullptr ? Property->GetFName().ToString() : FString(TEXT("<null>"));
+		if (DurationUs >= TransformBridgePerfLogThresholdUs)
+		{
+			UE_LOG(LogValueLadder, Display, TEXT("[Perf][TransformBridge] HandleGenerateGlobalRowExtension result=%s property=%s duration=%.1fus"), Result, *PropertyName, DurationUs);
+		}
+		else
+		{
+			UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][TransformBridge] HandleGenerateGlobalRowExtension result=%s property=%s duration=%.1fus"), Result, *PropertyName, DurationUs);
+		}
+	};
+
 	if (!InArgs.PropertyHandle.IsValid() || !InArgs.PropertyHandle->IsValidHandle())
 	{
+		LogGenerationPerf(TEXT("invalid-handle"), nullptr);
 		return;
 	}
 
 	const TSharedPtr<IDetailTreeNode> OwnerTreeNode = InArgs.OwnerTreeNode.Pin();
 	if (!OwnerTreeNode.IsValid())
 	{
+		LogGenerationPerf(TEXT("no-owner-node"), InArgs.PropertyHandle->GetProperty());
 		return;
 	}
 
 	const TSharedPtr<IDetailsView> DetailsView = OwnerTreeNode->GetNodeDetailsViewSharedPtr();
 	if (!DetailsView.IsValid())
 	{
+		LogGenerationPerf(TEXT("no-details-view"), InArgs.PropertyHandle->GetProperty());
 		return;
 	}
 
 	const FProperty* Property = InArgs.PropertyHandle->GetProperty();
 	if (Property == nullptr)
 	{
+		LogGenerationPerf(TEXT("no-property"), nullptr);
 		return;
 	}
 
@@ -261,18 +300,22 @@ void FComponentTransformDetailsBridge::HandleGenerateGlobalRowExtension(
 	if (PropertyName == USceneComponent::GetRelativeLocationPropertyName())
 	{
 		CacheTransformField(DetailsView.ToSharedRef(), FValueLadderPropertyTarget::ETransformField::Location, InArgs.PropertyHandle.ToSharedRef());
+		LogGenerationPerf(TEXT("cache-location"), Property);
 	}
 	else if (PropertyName == USceneComponent::GetRelativeRotationPropertyName())
 	{
 		CacheTransformField(DetailsView.ToSharedRef(), FValueLadderPropertyTarget::ETransformField::Rotation, InArgs.PropertyHandle.ToSharedRef());
+		LogGenerationPerf(TEXT("cache-rotation"), Property);
 	}
 	else if (PropertyName == USceneComponent::GetRelativeScale3DPropertyName())
 	{
 		CacheTransformField(DetailsView.ToSharedRef(), FValueLadderPropertyTarget::ETransformField::Scale, InArgs.PropertyHandle.ToSharedRef());
+		LogGenerationPerf(TEXT("cache-scale"), Property);
 	}
 	else
 	{
 		CacheScalarNumericRow(DetailsView.ToSharedRef(), InArgs.PropertyHandle.ToSharedRef());
+		LogGenerationPerf(TEXT("cache-scalar"), Property);
 	}
 }
 
