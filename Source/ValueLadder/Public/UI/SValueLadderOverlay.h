@@ -10,11 +10,11 @@ class SVerticalBox;
 
 namespace ValueLadder::UI
 {
-	inline constexpr float LadderListWidthPx = 92.0f;
-	inline constexpr float OverlayWidthPx = 92.0f;
+	inline constexpr float LadderListWidthPx = 34.0f;
+	inline constexpr float OverlayChromeInsetPx = 1.0f;
+	inline constexpr float OverlayWidthPx = LadderListWidthPx + OverlayChromeInsetPx * 2.0f;
 	inline constexpr float LadderViewportHeightPx = 180.0f;
 	inline constexpr float LadderCellHeightPx = 34.0f;
-	inline constexpr float OverlayChromeInsetPx = 1.0f;
 	inline constexpr float LadderRowSpacingPx = 1.0f;
 	inline constexpr float LadderRowStridePx = LadderCellHeightPx + LadderRowSpacingPx;
 }

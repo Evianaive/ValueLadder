@@ -7,6 +7,7 @@
 #include "ValueLadderLog.h"
 #include "ValueLadderSettings.h"
 
+#include "HAL/PlatformTime.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Application/SlateUser.h"
 #include "Framework/Notifications/NotificationManager.h"
@@ -18,6 +19,8 @@
 
 namespace
 {
+	constexpr double ResolvePerfLogThresholdUs = 250.0;
+
 	constexpr float LadderRowHeightPx = ValueLadder::UI::LadderRowStridePx;
 	constexpr float OverlayWindowHeightPx = ValueLadder::UI::LadderViewportHeightPx + 8.0f;
 	const FName VLT_NAME_ForceUnits(TEXT("ForceUnits"));
@@ -208,8 +211,28 @@ bool FValueLadderInputProcessor::HandleMouseButtonDownEvent(FSlateApplication& S
 	UE_LOG(LogValueLadder, Display, TEXT("[Input] MouseDown accepted for trigger=%s at (%.1f, %.1f). WidgetPathDepth=%d ShowOverlay=%s"), *Settings->TriggerMouseButton.ToString(), CursorPosition.X, CursorPosition.Y, WidgetsUnderCursor.Widgets.Num(), Settings->bShowOverlay ? TEXT("true") : TEXT("false"));
 
 	FValueLadderPropertyTarget Target;
+	const double ResolveStartTimeSeconds = FPlatformTime::Seconds();
+	const double RegistryResolveStartTimeSeconds = FPlatformTime::Seconds();
 	const bool bResolvedFromRegistry = FValueLadderTargetRegistry::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target);
-	const bool bResolvedFromTransformBridge = !bResolvedFromRegistry && FComponentTransformDetailsBridge::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target);
+	const double RegistryResolveDurationUs = (FPlatformTime::Seconds() - RegistryResolveStartTimeSeconds) * 1000000.0;
+	bool bResolvedFromTransformBridge = false;
+	double TransformBridgeResolveDurationUs = 0.0;
+	if (!bResolvedFromRegistry)
+	{
+		const double TransformBridgeResolveStartTimeSeconds = FPlatformTime::Seconds();
+		bResolvedFromTransformBridge = FComponentTransformDetailsBridge::Get().ResolveTargetFromWidgetPath(WidgetsUnderCursor, Target);
+		TransformBridgeResolveDurationUs = (FPlatformTime::Seconds() - TransformBridgeResolveStartTimeSeconds) * 1000000.0;
+	}
+	const double ResolveDurationUs = (FPlatformTime::Seconds() - ResolveStartTimeSeconds) * 1000000.0;
+	const TCHAR* ResolveSource = bResolvedFromRegistry ? TEXT("registry") : (bResolvedFromTransformBridge ? TEXT("transform-bridge") : TEXT("miss"));
+	if (ResolveDurationUs >= ResolvePerfLogThresholdUs)
+	{
+		UE_LOG(LogValueLadder, Display, TEXT("[Perf][Input] MouseDown target resolve source=%s duration=%.1fus registry=%.1fus bridge=%.1fus pathDepth=%d"), ResolveSource, ResolveDurationUs, RegistryResolveDurationUs, TransformBridgeResolveDurationUs, WidgetsUnderCursor.Widgets.Num());
+	}
+	else
+	{
+		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Input] MouseDown target resolve source=%s duration=%.1fus registry=%.1fus bridge=%.1fus pathDepth=%d"), ResolveSource, ResolveDurationUs, RegistryResolveDurationUs, TransformBridgeResolveDurationUs, WidgetsUnderCursor.Widgets.Num());
+	}
 	if (!bResolvedFromRegistry && !bResolvedFromTransformBridge)
 	{
 		MaybeShowUnsupportedTargetNotification(WidgetsUnderCursor, LOCTEXT("UnsupportedNumericControl", "Value Ladder cannot edit this numeric control yet."));
@@ -487,7 +510,7 @@ bool FValueLadderInputProcessor::InitializeGesture(const UValueLadderSettings& S
 	Settings.BuildLadderDisplayValues(Target.NumericType, ActiveLadderValues, ActiveUnitKey, Target.SemanticRole);
 	StartLadderIndex = Settings.GetDefaultLadderIndex(Target.NumericType, ActiveUnitKey, Target.SemanticRole);
 	ActiveLadderIndex = StartLadderIndex;
-	OverlayAnchorPosition = DragStartPosition - FVector2D(44.0f, 8.0f + static_cast<float>(StartLadderIndex) * LadderRowHeightPx);
+	OverlayAnchorPosition = DragStartPosition - FVector2D(ValueLadder::UI::OverlayWidthPx * 0.5f, 8.0f + static_cast<float>(StartLadderIndex) * LadderRowHeightPx);
 	UE_LOG(LogValueLadder, Display, TEXT("[Input] Gesture=%llu initialized. Type=%s Unit=%s StartIndex=%d LadderCount=%d Anchor=(%.1f, %.1f) CursorRestore=(%.1f, %.1f) user=%d pointer=%d captureWidget=%p"), ActiveGestureId, ToNumericTypeString(Target.NumericType), ActiveUnitKey.IsNone() ? TEXT("<none>") : *ActiveUnitKey.ToString(), StartLadderIndex, ActiveLadderValues.Num(), OverlayAnchorPosition.X, OverlayAnchorPosition.Y, CursorRestorePosition.X, CursorRestorePosition.Y, ActiveUserIndex, ActivePointerIndex, CaptureWidget.Pin().Get());
 	if (ActiveLadderValues.Num() == 0)
 	{
@@ -546,16 +569,41 @@ void FValueLadderInputProcessor::EnsureOverlay(FSlateApplication& SlateApp)
 	TSharedRef<SValueLadderOverlay> NewOverlayWidget = SNew(SValueLadderOverlay);
 	TSharedRef<SWindow> Window = SNew(SWindow)
 		.AutoCenter(EAutoCenter::None)
+		.Type(EWindowType::Menu)
 		.CreateTitleBar(false)
+		.IsPopupWindow(true)
 		.IsTopmostWindow(true)
 		.SizingRule(ESizingRule::Autosized)
+		.AdjustInitialSizeAndPositionForDPIScale(false)
+		.UseOSWindowBorder(false)
 		.FocusWhenFirstShown(false)
 		.ScreenPosition(OverlayAnchorPosition)
 		[
 			NewOverlayWidget
 		];
 
+	FWindowSizeLimits SizeLimits = Window->GetSizeLimits();
+	SizeLimits.SetMinWidth(ValueLadder::UI::OverlayWidthPx);
+	SizeLimits.SetMinHeight(1.0f);
+	Window->SetSizeLimits(SizeLimits);
+
 	SlateApp.AddWindow(Window, true);
+	const FVector2f WindowSizeInScreen = Window->GetSizeInScreen();
+	const FVector2f ClientSizeInScreen = Window->GetClientSizeInScreen();
+	const FVector2D OverlayDesiredSize = NewOverlayWidget->GetDesiredSize();
+	UE_LOG(
+		LogValueLadder,
+		Display,
+		TEXT("[Overlay] Gesture=%llu window metrics after AddWindow screenSize=(%.1f, %.1f) clientSize=(%.1f, %.1f) desiredSize=(%.1f, %.1f) targetWidth=%.1f innerWidth=%.1f"),
+		ActiveGestureId,
+		WindowSizeInScreen.X,
+		WindowSizeInScreen.Y,
+		ClientSizeInScreen.X,
+		ClientSizeInScreen.Y,
+		OverlayDesiredSize.X,
+		OverlayDesiredSize.Y,
+		ValueLadder::UI::OverlayWidthPx,
+		ValueLadder::UI::LadderListWidthPx);
 	if (!bDragging || ActiveGestureId != RequestedGestureId)
 	{
 		UE_LOG(LogValueLadder, Warning, TEXT("[Overlay] Gesture changed while creating overlay window. requestedGesture=%llu activeGesture=%llu dragging=%s; destroying transient window=%p"), RequestedGestureId, ActiveGestureId, bDragging ? TEXT("true") : TEXT("false"), &Window.Get());
@@ -588,6 +636,26 @@ void FValueLadderInputProcessor::UpdateOverlay()
 			: 0.0;
 		const double PixelsToNextTick = Session.GetCurrentPixelsToNextTick() > 0.0 ? Session.GetCurrentPixelsToNextTick() : TickThresholdPx;
 		OverlayWidget->UpdateDisplay(ActiveLadderValues, ActiveLadderIndex, Session.GetCurrentMultiplier(), Session.GetCurrentDelta(), Session.GetPreviewValueText(), bRowLocked, Session.GetCurrentTickCount(), Session.GetCurrentTickProgress(), PixelsToNextTick, TickThresholdPx, TickValueDelta, 0.0, AccumulatedDragDelta.X);
+		if (OverlayWindow.IsValid())
+		{
+			const TSharedPtr<SWindow> Window = OverlayWindow.Pin();
+			const FVector2f WindowSizeInScreen = Window->GetSizeInScreen();
+			const FVector2f ClientSizeInScreen = Window->GetClientSizeInScreen();
+			const FVector2D OverlayDesiredSize = OverlayWidget->GetDesiredSize();
+			UE_LOG(
+				LogValueLadder,
+				Display,
+				TEXT("[Overlay] Gesture=%llu live metrics screenSize=(%.1f, %.1f) clientSize=(%.1f, %.1f) desiredSize=(%.1f, %.1f) targetWidth=%.1f innerWidth=%.1f"),
+				ActiveGestureId,
+				WindowSizeInScreen.X,
+				WindowSizeInScreen.Y,
+				ClientSizeInScreen.X,
+				ClientSizeInScreen.Y,
+				OverlayDesiredSize.X,
+				OverlayDesiredSize.Y,
+				ValueLadder::UI::OverlayWidthPx,
+				ValueLadder::UI::LadderListWidthPx);
+		}
 		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Overlay] Gesture=%llu updated overlay. ActiveIndex=%d RowLocked=%s Delta=%.6g Multiplier=%.6g"), ActiveGestureId, ActiveLadderIndex, bRowLocked ? TEXT("true") : TEXT("false"), Session.GetCurrentDelta(), Session.GetCurrentMultiplier());
 	}
 	else

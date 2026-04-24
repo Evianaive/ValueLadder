@@ -89,14 +89,31 @@ void SValueLadderOverlay::UpdateDisplay(const TArray<FText>& InLadderValues, con
 
 	for (int32 Index = 0; Index < LadderRowStepTexts.Num(); ++Index)
 	{
+		const bool bIsActive = Index == InActiveIndex;
 		if (LadderRowStepTexts[Index].IsValid() && InLadderValues.IsValidIndex(Index))
 		{
 			LadderRowStepTexts[Index]->SetText(InLadderValues[Index]);
+
+			if (bIsActive && TickThresholdPx > 0.0)
+			{
+				const double Progress = FMath::Fmod(FMath::Abs(HorizontalDragOffsetPx), TickThresholdPx) / TickThresholdPx;
+				const double Direction = FMath::Sign(HorizontalDragOffsetPx);
+				double SlideOffset = Progress * ValueLadder::UI::LadderListWidthPx * Direction;
+				if (FMath::Abs(SlideOffset) > ValueLadder::UI::LadderListWidthPx * 0.5)
+				{
+					SlideOffset -= ValueLadder::UI::LadderListWidthPx * Direction;
+				}
+
+				LadderRowStepTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D(SlideOffset, 0.0f)));
+			}
+			else
+			{
+				LadderRowStepTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D::ZeroVector));
+			}
 		}
 
 		if (LadderRowValueTexts.IsValidIndex(Index) && LadderRowValueTexts[Index].IsValid())
 		{
-			const bool bIsActive = Index == InActiveIndex;
 			const FString ActiveDeltaText = FString::Printf(TEXT("%+.3g"), InDelta);
 			LadderRowValueTexts[Index]->SetText(FText::FromString(bIsActive ? ActiveDeltaText : FString()));
 			LadderRowValueTexts[Index]->SetRenderTransform(FSlateRenderTransform(FVector2D::ZeroVector));
@@ -141,11 +158,13 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 				SAssignNew(RowBorder, SBorder)
 				.BorderImage(FAppStyle::Get().GetBrush(TEXT("WhiteBrush")))
 				.BorderBackgroundColor(GetIdleCellColor())
-				.Padding(FMargin(6.0f, 2.0f))
+				.Clipping(EWidgetClipping::ClipToBounds)
+				.Padding(FMargin(0.0f, 2.0f))
 				[
 					SNew(SVerticalBox)
 					+ SVerticalBox::Slot()
 					.AutoHeight()
+					.HAlign(HAlign_Center)
 					.Padding(0.0f, StepLinePadding, 0.0f, 0.0f)
 					[
 						SAssignNew(StepText, STextBlock)
@@ -154,6 +173,7 @@ void SValueLadderOverlay::RebuildLadderRows(const TArray<FText>& InLadderValues)
 					]
 					+ SVerticalBox::Slot()
 					.FillHeight(1.0f)
+					.HAlign(HAlign_Center)
 					.Padding(0.0f, ActiveValuePadding, 0.0f, 0.0f)
 					[
 						SAssignNew(ValueText, STextBlock)
