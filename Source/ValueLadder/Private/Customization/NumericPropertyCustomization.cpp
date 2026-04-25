@@ -30,38 +30,25 @@ namespace
 		return FName(*FString::Printf(TEXT("DetailRowItem.%s"), *PropertyDisplayName));
 	}
 
-	void RegisterWidgetSubtree(
-		const TSharedRef<SWidget>& RootWidget,
-		const FValueLadderPropertyTarget& Target,
-		TArray<FValueLadderTargetHandle>& OutHandles)
+	void TagWidgetTree(const TSharedRef<SWidget>& RootWidget, const FName Tag)
 	{
-		OutHandles.Add(FValueLadderTargetRegistry::Get().RegisterTarget(RootWidget, Target));
-
-		FChildren* Children = RootWidget->GetAllChildren();
-		if (Children == nullptr)
+		TArray<TSharedRef<SWidget>> PendingWidgets;
+		PendingWidgets.Add(RootWidget);
+		while (PendingWidgets.Num() > 0)
 		{
-			return;
-		}
+			const TSharedRef<SWidget> Widget = PendingWidgets.Pop(EAllowShrinking::No);
+			Widget->AddMetadata(MakeShared<FTagMetaData>(Tag));
 
-		for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
-		{
-			RegisterWidgetSubtree(Children->GetChildAt(ChildIndex), Target, OutHandles);
-		}
-	}
+			FChildren* Children = Widget->GetAllChildren();
+			if (Children == nullptr)
+			{
+				continue;
+			}
 
-	void TagWidgetSubtree(const TSharedRef<SWidget>& RootWidget, const FName Tag)
-	{
-		RootWidget->AddMetadata(MakeShared<FTagMetaData>(Tag));
-
-		FChildren* Children = RootWidget->GetAllChildren();
-		if (Children == nullptr)
-		{
-			return;
-		}
-
-		for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
-		{
-			TagWidgetSubtree(Children->GetChildAt(ChildIndex), Tag);
+			for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
+			{
+				PendingWidgets.Add(Children->GetChildAt(ChildIndex));
+			}
 		}
 	}
 }
@@ -156,26 +143,19 @@ void FNumericPropertyCustomization::RegisterLiveWidgetSubtrees(
 	const double StartTimeSeconds = FPlatformTime::Seconds();
 	ClearRegisteredHandles();
 
-	const int32 NameRootHandleIndex = RegisteredHandles.Num();
-	RegisterWidgetSubtree(NameWidget, Target, RegisteredHandles);
-	const FValueLadderTargetHandle NameRootHandle = RegisteredHandles.IsValidIndex(NameRootHandleIndex)
-		? RegisteredHandles[NameRootHandleIndex]
-		: 0;
-
-	const int32 ValueRootHandleIndex = RegisteredHandles.Num();
-	RegisterWidgetSubtree(ValueWidget, Target, RegisteredHandles);
-	const FValueLadderTargetHandle ValueRootHandle = RegisteredHandles.IsValidIndex(ValueRootHandleIndex)
-		? RegisteredHandles[ValueRootHandleIndex]
-		: 0;
+	const FValueLadderTargetHandle NameRootHandle = FValueLadderTargetRegistry::Get().RegisterTarget(NameWidget, Target);
+	const FValueLadderTargetHandle ValueRootHandle = FValueLadderTargetRegistry::Get().RegisterTarget(ValueWidget, Target);
+	RegisteredHandles.Add(NameRootHandle);
+	RegisteredHandles.Add(ValueRootHandle);
 
 	if (NameRootHandle != 0)
 	{
-		TagWidgetSubtree(NameWidget, MakeHandleTag(NameRootHandle));
+		TagWidgetTree(NameWidget, MakeHandleTag(NameRootHandle));
 	}
 
 	if (ValueRootHandle != 0)
 	{
-		TagWidgetSubtree(ValueWidget, MakeHandleTag(ValueRootHandle));
+		TagWidgetTree(ValueWidget, MakeHandleTag(ValueRootHandle));
 	}
 
 	const bool bHandleValid = Target.PropertyHandle.IsValid() && Target.PropertyHandle->IsValidHandle();

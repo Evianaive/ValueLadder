@@ -9,6 +9,8 @@
 namespace
 {
 	constexpr double RegistryPerfLogThresholdUs = 250.0;
+	constexpr int32 RegistryCompactMutationThreshold = 512;
+	constexpr int32 RegistryCompactStaleHintThreshold = 32;
 
 	const TCHAR* ToNumericTypeString(const EValueLadderNumericType NumericType)
 	{
@@ -166,6 +168,66 @@ namespace
 			ToTransformFieldString(Target.TransformField),
 			*Target.ComponentName.ToString());
 	}
+
+	void AddHandleToIndex(TMap<const SWidget*, TArray<FValueLadderTargetHandle>>& Index, const SWidget* const Key, const FValueLadderTargetHandle Handle)
+	{
+		if (Key == nullptr)
+		{
+			return;
+		}
+
+		Index.FindOrAdd(Key).AddUnique(Handle);
+	}
+
+	void AddHandleToIndex(TMap<FString, TArray<FValueLadderTargetHandle>>& Index, const FString& Key, const FValueLadderTargetHandle Handle)
+	{
+		if (Key.IsEmpty())
+		{
+			return;
+		}
+
+		Index.FindOrAdd(Key).AddUnique(Handle);
+	}
+
+	void RemoveHandleFromIndex(TMap<const SWidget*, TArray<FValueLadderTargetHandle>>& Index, const SWidget* const Key, const FValueLadderTargetHandle Handle)
+	{
+		if (Key == nullptr)
+		{
+			return;
+		}
+
+		TArray<FValueLadderTargetHandle>* const Handles = Index.Find(Key);
+		if (Handles == nullptr)
+		{
+			return;
+		}
+
+		Handles->RemoveSingleSwap(Handle);
+		if (Handles->Num() == 0)
+		{
+			Index.Remove(Key);
+		}
+	}
+
+	void RemoveHandleFromIndex(TMap<FString, TArray<FValueLadderTargetHandle>>& Index, const FString& Key, const FValueLadderTargetHandle Handle)
+	{
+		if (Key.IsEmpty())
+		{
+			return;
+		}
+
+		TArray<FValueLadderTargetHandle>* const Handles = Index.Find(Key);
+		if (Handles == nullptr)
+		{
+			return;
+		}
+
+		Handles->RemoveSingleSwap(Handle);
+		if (Handles->Num() == 0)
+		{
+			Index.Remove(Key);
+		}
+	}
 }
 
 FValueLadderTargetRegistry& FValueLadderTargetRegistry::Get()
@@ -180,32 +242,44 @@ FValueLadderTargetHandle FValueLadderTargetRegistry::RegisterTarget(
 {
 	const double StartTimeSeconds = FPlatformTime::Seconds();
 	FScopeLock Lock(&RegistryMutex);
-	const double CompactStartTimeSeconds = FPlatformTime::Seconds();
-	Compact_NoLock();
-	const double CompactDurationUs = (FPlatformTime::Seconds() - CompactStartTimeSeconds) * 1000000.0;
 
 	const FValueLadderTargetHandle NewHandle = NextHandle++;
 	FRegisteredTarget& RegisteredTarget = RegisteredTargets.Add(NewHandle);
+	RegisteredTarget.WidgetKey = &Widget.Get();
 	RegisteredTarget.Widget = Widget;
 	RegisteredTarget.Target = Target;
+	if (Target.PropertyHandle.IsValid() && Target.PropertyHandle->IsValidHandle())
+	{
+		if (const FProperty* const Property = Target.PropertyHandle->GetProperty())
+		{
+			RegisteredTarget.NormalizedPropertyToken = NormalizeRowToken(Property->GetFName().ToString());
+		}
+
+		RegisteredTarget.NormalizedDisplayToken = NormalizeRowToken(Target.PropertyHandle->GetPropertyDisplayName().ToString());
+	}
+
+	AddHandleToIndex(WidgetIndex, RegisteredTarget.WidgetKey, NewHandle);
+	AddHandleToIndex(PropertyTokenIndex, RegisteredTarget.NormalizedPropertyToken, NewHandle);
+	AddHandleToIndex(DisplayTokenIndex, RegisteredTarget.NormalizedDisplayToken, NewHandle);
+	++MutationsSinceCompact;
 	UE_LOG(
 		LogValueLadder,
 		Display,
 		TEXT("[Registry] Registered handle=%llu widget=%p type=%s vector=%s total=%d"),
-		static_cast<uint64>(NewHandle),
-		static_cast<const void*>(&Widget.Get()),
-		ToNumericTypeString(Target.NumericType),
-		Target.bIsVectorComponent ? TEXT("true") : TEXT("false"),
-		RegisteredTargets.Num());
+			static_cast<uint64>(NewHandle),
+			static_cast<const void*>(&Widget.Get()),
+			ToNumericTypeString(Target.NumericType),
+			Target.bIsVectorComponent ? TEXT("true") : TEXT("false"),
+			RegisteredTargets.Num());
 
 	const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
 	if (DurationUs >= RegistryPerfLogThresholdUs)
 	{
-		UE_LOG(LogValueLadder, Display, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, CompactDurationUs, RegisteredTargets.Num());
+		UE_LOG(LogValueLadder, Display, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, 0.0, RegisteredTargets.Num());
 	}
 	else
 	{
-		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, CompactDurationUs, RegisteredTargets.Num());
+		UE_LOG(LogValueLadder, VeryVerbose, TEXT("[Perf][Registry] RegisterTarget duration=%.1fus compact=%.1fus total=%d"), DurationUs, 0.0, RegisteredTargets.Num());
 	}
 
 	return NewHandle;
@@ -215,7 +289,14 @@ void FValueLadderTargetRegistry::UnregisterTarget(const FValueLadderTargetHandle
 {
 	FScopeLock Lock(&RegistryMutex);
 	UE_LOG(LogValueLadder, Display, TEXT("[Registry] Unregister handle=%llu existed=%s beforeTotal=%d"), static_cast<uint64>(Handle), RegisteredTargets.Contains(Handle) ? TEXT("true") : TEXT("false"), RegisteredTargets.Num());
-	RegisteredTargets.Remove(Handle);
+	if (const FRegisteredTarget* const RegisteredTarget = RegisteredTargets.Find(Handle))
+	{
+		RemoveHandleFromIndex(WidgetIndex, RegisteredTarget->WidgetKey, Handle);
+		RemoveHandleFromIndex(PropertyTokenIndex, RegisteredTarget->NormalizedPropertyToken, Handle);
+		RemoveHandleFromIndex(DisplayTokenIndex, RegisteredTarget->NormalizedDisplayToken, Handle);
+		RegisteredTargets.Remove(Handle);
+		++MutationsSinceCompact;
+	}
 }
 
 bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& WidgetPath, FValueLadderPropertyTarget& OutTarget)
@@ -223,12 +304,17 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 	const double StartTimeSeconds = FPlatformTime::Seconds();
 	FScopeLock Lock(&RegistryMutex);
 	const double CompactStartTimeSeconds = FPlatformTime::Seconds();
-	Compact_NoLock();
+	MaybeCompact_NoLock();
 	const double CompactDurationUs = (FPlatformTime::Seconds() - CompactStartTimeSeconds) * 1000000.0;
 	OutTarget = FValueLadderPropertyTarget();
 
 	int32 WidgetMatchCount = 0;
 	int32 InvalidHandleMatchCount = 0;
+	const auto MarkStale = [&]()
+	{
+		bCompactRequested = true;
+		++StaleHintCount;
+	};
 	const auto LogResolvePerf = [&](const TCHAR* Result)
 	{
 		const double DurationUs = (FPlatformTime::Seconds() - StartTimeSeconds) * 1000000.0;
@@ -245,39 +331,53 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 	for (int32 WidgetPathIndex = WidgetPath.Widgets.Num() - 1; WidgetPathIndex >= 0; --WidgetPathIndex)
 	{
 		const TSharedRef<SWidget>& CandidateWidget = WidgetPath.Widgets[WidgetPathIndex].Widget;
-
-		for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+		const TArray<FValueLadderTargetHandle>* const IndexedHandles = WidgetIndex.Find(&CandidateWidget.Get());
+		if (IndexedHandles == nullptr)
 		{
-			const TSharedPtr<SWidget> RegisteredWidget = Entry.Value.Widget.Pin();
-			if (!RegisteredWidget.IsValid())
+			continue;
+		}
+
+		for (int32 HandleIndex = IndexedHandles->Num() - 1; HandleIndex >= 0; --HandleIndex)
+		{
+			const FValueLadderTargetHandle IndexedHandle = (*IndexedHandles)[HandleIndex];
+			const FRegisteredTarget* const RegisteredTarget = RegisteredTargets.Find(IndexedHandle);
+			if (RegisteredTarget == nullptr)
 			{
+				++InvalidHandleMatchCount;
+				MarkStale();
 				continue;
 			}
 
-			if (RegisteredWidget.Get() == &CandidateWidget.Get())
+			const TSharedPtr<SWidget> RegisteredWidget = RegisteredTarget->Widget.Pin();
+			if (!RegisteredWidget.IsValid())
 			{
-				++WidgetMatchCount;
-				OutTarget = Entry.Value.Target;
-				const bool bPropertyHandleValid = OutTarget.PropertyHandle.IsValid();
-				const bool bIsValidHandle = bPropertyHandleValid && OutTarget.PropertyHandle->IsValidHandle();
-
-				if (!bIsValidHandle)
-				{
-					++InvalidHandleMatchCount;
-					UE_LOG(
-						LogValueLadder,
-						Verbose,
-						TEXT("[Registry] Resolve matched widget with invalid property handle. handle=%llu pathIndex=%d %s %s"),
-						static_cast<uint64>(Entry.Key),
-						WidgetPathIndex,
-						*DescribeWidget(RegisteredWidget),
-						*DescribeTarget(OutTarget));
-					continue;
-				}
-
-				LogResolvePerf(TEXT("direct-widget"));
-				return true;
+				++InvalidHandleMatchCount;
+				MarkStale();
+				continue;
 			}
+
+			++WidgetMatchCount;
+			OutTarget = RegisteredTarget->Target;
+			const bool bPropertyHandleValid = OutTarget.PropertyHandle.IsValid();
+			const bool bIsValidHandle = bPropertyHandleValid && OutTarget.PropertyHandle->IsValidHandle();
+
+			if (!bIsValidHandle)
+			{
+				++InvalidHandleMatchCount;
+				MarkStale();
+				UE_LOG(
+					LogValueLadder,
+					Verbose,
+					TEXT("[Registry] Resolve matched widget with invalid property handle. handle=%llu pathIndex=%d %s %s"),
+					static_cast<uint64>(IndexedHandle),
+					WidgetPathIndex,
+					*DescribeWidget(RegisteredWidget),
+					*DescribeTarget(OutTarget));
+				continue;
+			}
+
+			LogResolvePerf(TEXT("direct-widget"));
+			return true;
 		}
 	}
 
@@ -292,9 +392,10 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 				continue;
 			}
 
-			const FRegisteredTarget* TaggedTarget = RegisteredTargets.Find(TaggedHandle);
+			const FRegisteredTarget* const TaggedTarget = RegisteredTargets.Find(TaggedHandle);
 			if (TaggedTarget == nullptr)
 			{
+				MarkStale();
 				continue;
 			}
 
@@ -304,6 +405,7 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 			if (!bIsValidHandle)
 			{
 				++InvalidHandleMatchCount;
+				MarkStale();
 				UE_LOG(
 					LogValueLadder,
 					Verbose,
@@ -335,38 +437,44 @@ bool FValueLadderTargetRegistry::ResolveTargetFromWidgetPath(const FWidgetPath& 
 		const FRegisteredTarget* DisplayNameMatch = nullptr;
 		bool bPropertyNameAmbiguous = false;
 		bool bDisplayNameAmbiguous = false;
-		for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+
+		if (const TArray<FValueLadderTargetHandle>* const PropertyHandles = PropertyTokenIndex.Find(NormalizedDetailRowToken))
 		{
-			const FRegisteredTarget& RegisteredTarget = Entry.Value;
-			if (!RegisteredTarget.Target.PropertyHandle.IsValid() || !RegisteredTarget.Target.PropertyHandle->IsValidHandle())
+			for (const FValueLadderTargetHandle IndexedHandle : *PropertyHandles)
 			{
-				continue;
-			}
+				const FRegisteredTarget* const RegisteredTarget = RegisteredTargets.Find(IndexedHandle);
+				if (RegisteredTarget == nullptr || !RegisteredTarget->Target.PropertyHandle.IsValid() || !RegisteredTarget->Target.PropertyHandle->IsValidHandle())
+				{
+					MarkStale();
+					continue;
+				}
 
-			const FProperty* Property = RegisteredTarget.Target.PropertyHandle->GetProperty();
-			if (Property == nullptr)
-			{
-				continue;
-			}
-
-			if (NormalizeRowToken(Property->GetFName().ToString()) == NormalizedDetailRowToken)
-			{
 				if (PropertyNameMatch != nullptr
-					&& !AreEquivalentPropertyHandles(PropertyNameMatch->Target.PropertyHandle, RegisteredTarget.Target.PropertyHandle))
+					&& !AreEquivalentPropertyHandles(PropertyNameMatch->Target.PropertyHandle, RegisteredTarget->Target.PropertyHandle))
 				{
 					bPropertyNameAmbiguous = true;
 				}
-				PropertyNameMatch = &RegisteredTarget;
+				PropertyNameMatch = RegisteredTarget;
 			}
+		}
 
-			if (NormalizeRowToken(RegisteredTarget.Target.PropertyHandle->GetPropertyDisplayName().ToString()) == NormalizedDetailRowToken)
+		if (const TArray<FValueLadderTargetHandle>* const DisplayHandles = DisplayTokenIndex.Find(NormalizedDetailRowToken))
+		{
+			for (const FValueLadderTargetHandle IndexedHandle : *DisplayHandles)
 			{
+				const FRegisteredTarget* const RegisteredTarget = RegisteredTargets.Find(IndexedHandle);
+				if (RegisteredTarget == nullptr || !RegisteredTarget->Target.PropertyHandle.IsValid() || !RegisteredTarget->Target.PropertyHandle->IsValidHandle())
+				{
+					MarkStale();
+					continue;
+				}
+
 				if (DisplayNameMatch != nullptr
-					&& !AreEquivalentPropertyHandles(DisplayNameMatch->Target.PropertyHandle, RegisteredTarget.Target.PropertyHandle))
+					&& !AreEquivalentPropertyHandles(DisplayNameMatch->Target.PropertyHandle, RegisteredTarget->Target.PropertyHandle))
 				{
 					bDisplayNameAmbiguous = true;
 				}
-				DisplayNameMatch = &RegisteredTarget;
+				DisplayNameMatch = RegisteredTarget;
 			}
 		}
 
@@ -409,22 +517,40 @@ bool FValueLadderTargetRegistry::FindRegisteredWidgetForPropertyName(
 	FValueLadderPropertyTarget& OutTarget)
 {
 	FScopeLock Lock(&RegistryMutex);
-	Compact_NoLock();
+	MaybeCompact_NoLock();
 
 	OutWidget.Reset();
 	OutTarget = FValueLadderPropertyTarget();
-
-	for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+	const FString NormalizedPropertyToken = NormalizeRowToken(PropertyName.ToString());
+	const TArray<FValueLadderTargetHandle>* const PropertyHandles = PropertyTokenIndex.Find(NormalizedPropertyToken);
+	if (PropertyHandles == nullptr)
 	{
-		const TSharedPtr<SWidget> RegisteredWidget = Entry.Value.Widget.Pin();
-		if (!RegisteredWidget.IsValid())
+		return false;
+	}
+
+	for (const FValueLadderTargetHandle IndexedHandle : *PropertyHandles)
+	{
+		const FRegisteredTarget* const RegisteredTarget = RegisteredTargets.Find(IndexedHandle);
+		if (RegisteredTarget == nullptr)
 		{
+			bCompactRequested = true;
+			++StaleHintCount;
 			continue;
 		}
 
-		const TSharedPtr<IPropertyHandle> PropertyHandle = Entry.Value.Target.PropertyHandle;
+		const TSharedPtr<SWidget> RegisteredWidget = RegisteredTarget->Widget.Pin();
+		if (!RegisteredWidget.IsValid())
+		{
+			bCompactRequested = true;
+			++StaleHintCount;
+			continue;
+		}
+
+		const TSharedPtr<IPropertyHandle> PropertyHandle = RegisteredTarget->Target.PropertyHandle;
 		if (!PropertyHandle.IsValid() || !PropertyHandle->IsValidHandle())
 		{
+			bCompactRequested = true;
+			++StaleHintCount;
 			continue;
 		}
 
@@ -435,11 +561,25 @@ bool FValueLadderTargetRegistry::FindRegisteredWidgetForPropertyName(
 		}
 
 		OutWidget = RegisteredWidget;
-		OutTarget = Entry.Value.Target;
+		OutTarget = RegisteredTarget->Target;
 		return true;
 	}
 
 	return false;
+}
+
+void FValueLadderTargetRegistry::MaybeCompact_NoLock(const bool bForce)
+{
+	if (!bForce)
+	{
+		const bool bThresholdReached = MutationsSinceCompact >= RegistryCompactMutationThreshold || StaleHintCount >= RegistryCompactStaleHintThreshold;
+		if (!bCompactRequested && !bThresholdReached)
+		{
+			return;
+		}
+	}
+
+	Compact_NoLock();
 }
 
 void FValueLadderTargetRegistry::Compact_NoLock()
@@ -488,6 +628,20 @@ void FValueLadderTargetRegistry::Compact_NoLock()
 			It.RemoveCurrent();
 		}
 	}
+
+	WidgetIndex.Reset();
+	PropertyTokenIndex.Reset();
+	DisplayTokenIndex.Reset();
+	for (const TPair<FValueLadderTargetHandle, FRegisteredTarget>& Entry : RegisteredTargets)
+	{
+		AddHandleToIndex(WidgetIndex, Entry.Value.WidgetKey, Entry.Key);
+		AddHandleToIndex(PropertyTokenIndex, Entry.Value.NormalizedPropertyToken, Entry.Key);
+		AddHandleToIndex(DisplayTokenIndex, Entry.Value.NormalizedDisplayToken, Entry.Key);
+	}
+
+	MutationsSinceCompact = 0;
+	StaleHintCount = 0;
+	bCompactRequested = false;
 
 	if (RemovedCount > 0)
 	{

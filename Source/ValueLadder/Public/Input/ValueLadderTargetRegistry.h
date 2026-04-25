@@ -22,13 +22,23 @@ public:
 private:
 	struct FRegisteredTarget
 	{
+		const SWidget* WidgetKey = nullptr;
 		TWeakPtr<SWidget> Widget;
 		FValueLadderPropertyTarget Target;
+		FString NormalizedPropertyToken;
+		FString NormalizedDisplayToken;
 	};
 
+	void MaybeCompact_NoLock(bool bForce = false);
 	void Compact_NoLock();
 
 	FCriticalSection RegistryMutex;
 	TMap<FValueLadderTargetHandle, FRegisteredTarget> RegisteredTargets;
+	TMap<const SWidget*, TArray<FValueLadderTargetHandle>> WidgetIndex;
+	TMap<FString, TArray<FValueLadderTargetHandle>> PropertyTokenIndex;
+	TMap<FString, TArray<FValueLadderTargetHandle>> DisplayTokenIndex;
+	int32 MutationsSinceCompact = 0;
+	int32 StaleHintCount = 0;
+	bool bCompactRequested = false;
 	FValueLadderTargetHandle NextHandle = 1;
 };
